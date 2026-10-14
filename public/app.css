@@ -456,7 +456,7 @@ button,a,label,summary,.sessbtn,.cday{touch-action:manipulation;-webkit-tap-high
 .ivsrc{padding:16px 0;border-top:1px solid var(--line)}
 .iv-head{display:flex;align-items:center;gap:12px}
 .iv-head h3{margin:0}
-.iv-head .tag{margin-left:auto}
+.iv-sub{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px}
 .iv-head .logo{flex:none}
 .iv-p{margin:10px 0 0;line-height:1.5}
 .iv-steps{margin:8px 0 0;padding-left:22px;display:flex;flex-direction:column;gap:6px;line-height:1.45}

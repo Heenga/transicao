@@ -2188,7 +2188,7 @@ async function pushToIntervals(opts = {}){
 }
 function intervalsCardHTML(){
   const iv = window.TRI?.me?.intervals, on = iv?.connected;
-  const head = `<div class="iv-head"><div class="logo" style="color:#E8473F">ICU</div><div><h3>Treinos no relógio Garmin</h3><div class="note">via intervals.icu</div></div>${on ? `<span class="tag" style="--c:var(--ok)">conectado</span>` : ""}</div>`;
+  const head = `<div class="iv-head"><div class="logo" style="color:#E8473F">ICU</div><div><h3>Treinos no relógio Garmin</h3><div class="note iv-sub">via intervals.icu${on ? ` <span class="tag" style="--c:var(--ok)">conectado</span>` : ""}</div></div></div>`;
   if (on) return `<div class="ivsrc">${head}
     <p class="iv-p">Os treinos da semana vão sozinhos para o seu Garmin, com as etapas (aquecimento, principal, tiros) e a zona ou o pace de cada uma.</p>
     <ul class="iv-auto"><li>Domingo à noite, quando a semana nova é gerada</li><li>Sempre que o coach reajusta a semana</li><li>Quando você muda um treino de dia ou troca um exercício</li></ul>
