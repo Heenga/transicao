@@ -364,6 +364,33 @@ function streakWeeks(){
   const cur = w[w.length-1]; if (cur.swim.c + cur.bike.c + cur.run.c + cur.other.c >= 4) n++;
   return n;
 }
+/* reconhecimentos: só aparecem quando os dados comprovam a evolução */
+function highlights(){
+  const out = [], now = Date.now(), d7 = addDays(new Date(), -7), d90 = addDays(new Date(), -97);
+  const sd = streakDays(), sw = streakWeeks(), adh = adherence();
+  if (sd >= 3) out.push({ k:"streak", t:`${sd} dias seguidos treinando`, d: sd >= 7 ? "Sequência de respeito. É essa constância que constrói o condicionamento." : "Boa sequência. Mantenha o ritmo, com os dias leves realmente leves." });
+  if (sw >= 2) out.push({ k:"sem", t:`${sw} semanas seguidas com 4+ treinos`, d:"Consistência semana após semana é o que mais faz evoluir no triatlo." });
+  if (adh != null && adh >= 85) out.push({ k:"plano", t:`${adh}% do plano cumprido`, d:"Você está fazendo exatamente o que o plano pede. Excelente disciplina." });
+  if (dataQuality().enough){
+    const f = fitnessSeries(42), n = f.at(-1).ctl, a = f[Math.max(0, f.length-29)].ctl;
+    if (a > 1 && (n - a)/a >= 0.08) out.push({ k:"forma", t:`Condicionamento +${fmtNum((n-a)/a*100,1)}% em 4 semanas`, d:`Saiu de ${fmtNum(score(a),1)} para ${fmtNum(score(n),1)}. Seu corpo está respondendo ao treino.` });
+  }
+  const names = { swim:"natação", bike:"pedal", run:"corrida" };
+  for (const sp of ["swim","bike","run"]){
+    const recent = S.activities.filter(x => x.sport === sp && new Date(x.date) >= d7), prev = S.activities.filter(x => x.sport === sp && new Date(x.date) < d7 && new Date(x.date) >= d90);
+    if (!recent.length || prev.length < 3) continue;
+    const best = recent.reduce((m,x) => x.dist > m.dist ? x : m, recent[0]), prevBest = Math.max(...prev.map(x => x.dist));
+    if (best.dist > prevBest * 1.03) out.push({ k:"pr-"+sp, t:`Maior ${names[sp]} dos últimos 3 meses`, d:`${fmtDist(sp, best.dist)} ${agoText(best.date)}. Recorde recente batido.` });
+  }
+  const cmp = compareRows().find(r => r.k === "Ritmo de corrida");
+  if (cmp && cmp.a && cmp.b && (cmp.a - cmp.b)/cmp.a >= 0.03) out.push({ k:"pace", t:"Corrida mais rápida", d:`Ritmo médio de ${cmp.f(cmp.a)} para ${cmp.f(cmp.b)} em relação a 2 meses atrás.` });
+  return out.slice(0, 4);
+}
+function highlightsHTML(){
+  const h = highlights(); if (!h.length) return "";
+  return `<section class="kudos-card"><div class="kc-head"><span class="eyebrow">Mandou bem</span><b>${h.length === 1 ? "Sua evolução desta semana" : "Você está evoluindo, e os números mostram"}</b></div>
+    <ul>${h.map(x => `<li><b>${esc(x.t)}</b><span>${esc(x.d)}</span></li>`).join("")}</ul></section>`;
+}
 function computeBadges(){
   const b = [], wk = weeklyBuckets(1)[0], monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const m = sp => S.activities.filter(a => a.sport === sp && new Date(a.date) >= monthStart).reduce((s,a)=>s+a.dist,0);
@@ -648,6 +675,8 @@ Condicionamento (modelo de carga): ${JSON.stringify(fitnessForAI())}
 Antes (8 semanas atrás) vs agora (últimas 4 semanas): ${JSON.stringify(compareRows().map(r => ({ indicador: r.k, antes: r.a ? r.f(r.a) : null, agora: r.b ? r.f(r.b) : null })))}
 Recuperação (check-ins recentes): ${JSON.stringify((S.checkins||[]).slice(-7))}
 Próximo treino: ${JSON.stringify(nextSession()?.sessions || [])}
+Evoluções comprovadas: ${JSON.stringify(highlights().map(x => x.t))}
+Se houver evolução comprovada, o primeiro ponto deve reconhecer isso com entusiasmo e o número (tipo "bom"). Não elogie o que não está nos dados.
 Use só os números acima; se um dado não existir, não cite. Português do Brasil, frases curtas, sem emoji, sem jargão sem explicação.
 Responda SÓ com JSON:
 {"resumo":"1 frase: como está hoje",
@@ -762,6 +791,7 @@ Plano: ${S.plan ? `fase ${S.plan.fase}, início ${S.plan.start}, aderência ${ad
 Queixas registradas: ${JSON.stringify(activeComplaints())}
 Condicionamento: ${JSON.stringify(fitnessForAI())}
 Recuperação (check-ins de sono/HRV/Body Battery/cansaço, últimos 7): ${JSON.stringify((S.checkins||[]).slice(-7))}
+Evoluções comprovadas pelos dados: ${JSON.stringify(highlights().map(x => x.t + " — " + x.d))}. Quando fizer sentido na conversa, reconheça essas conquistas com energia e números, para motivar (sem exagerar nem inventar).
 Se o sono estiver abaixo de 6 h, sleep score abaixo de 60, HRV caindo, Body Battery abaixo de 40 ou cansaço ≥4, sugira reduzir a intensidade do dia.
 Quando o atleta mandar sleep score, Body Battery, HRV, sono etc. (por texto ou print do relógio), chame registrar_recuperacao e comente em 1–2 frases o impacto no treino de hoje.
 Quando contar um treino feito sem relógio, chame registrar_treino (pergunte o esforço de 1 a 10 se faltar). Se disser o esforço de um treino já sincronizado, use avaliar_esforco.
@@ -1249,14 +1279,29 @@ function checkinHTML(){
   const v = c || {};
   return `<section class="panel checkin"><div class="ph"><h2>Check-in de hoje</h2><span class="note">Preencha o que tiver (Garmin, Apple Watch ou de cabeça) ou mande no chat: "sleep score 78, body battery 60".</span></div>
     <form class="ci" id="checkin">
-      <div class="fld"><label for="ci_sono">Horas de sono</label><input id="ci_sono" type="number" step="0.25" min="0" max="14" value="${esc(v.sono ?? "")}" placeholder="7,5"></div>
-      <div class="fld"><label for="ci_score">Sleep score</label><input id="ci_score" type="number" min="0" max="100" value="${esc(v.score ?? "")}" placeholder="0–100"></div>
-      <div class="fld"><label for="ci_qual">Como dormiu (1–5)</label><input id="ci_qual" type="number" min="1" max="5" value="${esc(v.qual ?? "")}" placeholder="1 péssimo · 5 ótimo"><small class="hint">Sua sensação. Útil para quem não tem relógio.</small></div>
-      <div class="fld"><label for="ci_hrv">HRV (ms)</label><small class="hint" style="order:3">Variabilidade da frequência cardíaca medida pelo relógio no sono. Mais alto que o seu normal = mais recuperado.</small><input id="ci_hrv" type="number" min="0" max="250" value="${esc(v.hrv ?? "")}" placeholder="opcional"></div>
-      <div class="fld"><label for="ci_bb">Body Battery</label><input id="ci_bb" type="number" min="0" max="100" value="${esc(v.bb ?? "")}" placeholder="opcional"></div>
-      <div class="fld"><label for="ci_rhr">FC de repouso</label><input id="ci_rhr" type="number" min="30" max="120" value="${esc(v.rhr ?? "")}" placeholder="opcional"></div>
-      <div class="fld"><label for="ci_cans">Cansaço (1–5)</label><input id="ci_cans" type="number" min="1" max="5" value="${esc(v.cans ?? "")}" placeholder="1 = inteiro"></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn" type="submit">Salvar</button></div>
+      <div class="cigroup"><div class="cig-t">Sono</div>
+        <div class="cirow">
+          <div class="fld"><label for="ci_sono">Horas dormidas</label><input id="ci_sono" type="number" step="0.25" min="0" max="14" value="${esc(v.sono ?? "")}" placeholder="7,5"></div>
+          <div class="fld"><label for="ci_qual">Como dormiu</label><input id="ci_qual" type="number" min="1" max="5" value="${esc(v.qual ?? "")}" placeholder="1 a 5"></div>
+          <div class="fld"><label for="ci_score">Sleep score</label><input id="ci_score" type="number" min="0" max="100" value="${esc(v.score ?? "")}" placeholder="0 a 100"></div>
+        </div></div>
+      <div class="cigroup"><div class="cig-t">Recuperação</div>
+        <div class="cirow">
+          <div class="fld"><label for="ci_bb">Body Battery</label><input id="ci_bb" type="number" min="0" max="100" value="${esc(v.bb ?? "")}" placeholder="0 a 100"></div>
+          <div class="fld"><label for="ci_hrv">HRV (ms)</label><input id="ci_hrv" type="number" min="0" max="250" value="${esc(v.hrv ?? "")}" placeholder="ex: 55"></div>
+          <div class="fld"><label for="ci_rhr">FC de repouso</label><input id="ci_rhr" type="number" min="30" max="120" value="${esc(v.rhr ?? "")}" placeholder="bpm"></div>
+          <div class="fld"><label for="ci_cans">Cansaço</label><input id="ci_cans" type="number" min="1" max="5" value="${esc(v.cans ?? "")}" placeholder="1 a 5"></div>
+        </div></div>
+      <div class="cifoot">
+        <details class="cihelp"><summary>O que é cada campo?</summary><dl>
+          <dt>Como dormiu</dt><dd>Sua sensação: 1 péssimo, 5 ótimo. Para quem não tem relógio.</dd>
+          <dt>Sleep score / Body Battery</dt><dd>Notas de 0 a 100 do Garmin (no Apple Watch, use o app de sono que tiver).</dd>
+          <dt>HRV</dt><dd>Variabilidade da frequência cardíaca no sono, em ms. Acima do seu normal = recuperado; bem abaixo = cansaço.</dd>
+          <dt>FC de repouso</dt><dd>Batimentos ao acordar. Subir 5+ bpm do seu normal costuma indicar fadiga.</dd>
+          <dt>Cansaço</dt><dd>1 inteiro, 5 destruído.</dd>
+        </dl><p class="note" style="margin:6px 0 0">Preencha só o que tiver. Nada é obrigatório.</p></details>
+        <button class="btn" type="submit">Salvar check-in</button>
+      </div>
     </form></section>`;
 }
 function chatBox(compact){
@@ -1425,6 +1470,7 @@ function viewPainel(){
     <div class="row"><button class="btn" data-act="showlog">Registrar treino</button><button class="btn ghost" data-act="sync" ${S.busy.strava ? "disabled" : ""}>${S.busy.strava ? '<span class="spin"></span> Sincronizando' : "Atualizar Strava"}</button></div></div>
   ${msgHTML("painel")}
   ${S.showLog ? `<div style="margin-bottom:16px">${logFormHTML()}</div>` : ""}
+  ${highlightsHTML()}
   ${!ckDone ? `<div class="first">${checkinHTML()}</div>${weighCard}` : ""}
 
   <div class="fit">
