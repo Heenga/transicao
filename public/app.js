@@ -663,7 +663,7 @@ function adherence(){
 /* ---------- coach ---------- */
 async function coachNote(force){
   if (!S.profile || (!S.activities.length && !S.plan)) return;
-  if (!force && S.profile.note && S.profile.noteAt && (Date.now() - new Date(S.profile.noteAt)) < 6*3600e3) return;
+  if (!force && S.profile.noteObj && S.profile.noteAt && (Date.now() - new Date(S.profile.noteAt)) < 6*3600e3) return;
   const sample = await cap("sample"); if (!sample) return;
   busy("note", true); render();
   try {
@@ -682,11 +682,31 @@ Responda SÓ com JSON:
 {"resumo":"1 frase: como está hoje",
  "pontos":[{"titulo":"2 a 4 palavras","texto":"1 frase com o número que comprova (ex.: Corrida subiu de 8,0 para 12,4 km/semana)","tipo":"bom|atencao|neutro"}],
  "foco":"1 frase: o que fazer no próximo treino (e como adaptar se o sono/cansaço de hoje estiver ruim)"}
-"pontos" tem de 2 a 4 itens.`, { modelTier:"quick" });
+"pontos" tem de 2 a 4 itens. O "resumo" deve ser simples, como: "Você está construindo base: treina mais horas que há 2 meses, mas a natação ainda está parada." Não repita a tabela de números; interprete.`, { modelTier:"quick" });
     S.profile = { ...S.profile, noteObj: r, note: [r.resumo, ...(r.pontos||[]).map(p => p.texto), r.foco].filter(Boolean).join(" "), noteAt: new Date().toISOString() };
     save("profile", S.profile);
   } catch {}
   busy("note", false); render();
+}
+function changeSentence(r){
+  if (!r.a && r.b) return { t: r.k, d: `começou agora: ${r.f(r.b)}`, k: "bom" };
+  if (r.a && !r.b) return { t: r.k, d: `parou: era ${r.f(r.a)}`, k: "at" };
+  const pct = (r.b - r.a) / r.a * 100, better = r.up ? pct > 0 : pct < 0;
+  if (Math.abs(pct) < 2) return { t: r.k, d: `estável em ${r.f(r.b)}`, k: "ne" };
+  const verb = r.up ? (pct > 0 ? "subiu" : "caiu") : (pct < 0 ? "melhorou" : "piorou");
+  return { t: r.k, d: `${verb} de ${r.f(r.a)} para ${r.f(r.b)} (${pct > 0 ? "+" : "−"}${fmtNum(Math.abs(pct),0)}%)`, k: better ? "bom" : "at" };
+}
+function coachReadHTML(p, rows){
+  const perfil = [p.level ? `Atleta ${p.level}` : "Atleta", p.peso ? `${fmtNum(p.peso,1)} kg` : null, p.hours ? `${fmtNum(p.hours,1)} h/semana disponíveis` : null, p.fraco && p.fraco !== "Nenhum" ? `ponto fraco: ${p.fraco.toLowerCase()}` : null].filter(Boolean).join(" · ");
+  const ch = rows.map(changeSentence).slice(0, 6);
+  const o = p.noteObj;
+  return `<div class="cr">
+    <div class="cr-block"><div class="eyebrow">Quem é você hoje</div><p class="cr-perfil">${esc(perfil)}${S.activities.length && dataQuality().enough ? ` · condicionamento ${fmtNum(score(fitnessSeries(42).at(-1).ctl),1)}/100` : ""}</p></div>
+    ${ch.length ? `<div class="cr-block"><div class="eyebrow">O que mudou nas últimas 4 semanas</div><ul class="cn-list">${ch.map(c => `<li class="t-${c.k}"><b>${esc(c.t)}</b><span>${esc(c.d)}</span></li>`).join("")}</ul></div>` : ""}
+    ${o?.resumo ? `<div class="cr-block"><div class="eyebrow">Análise</div><p class="cn-sum">${esc(o.resumo)}</p>${(o.pontos||[]).filter(x => x.tipo === "atencao").slice(0,2).map(x => `<p class="cr-att"><b>${esc(x.titulo)}:</b> ${esc(x.texto)}</p>`).join("")}</div>` : ""}
+    ${o?.foco ? `<div class="cn-foco"><span class="eyebrow">Foco do próximo treino</span><p>${esc(o.foco)}</p></div>` : !o && S.busy.note ? `<p class="note">Analisando sua evolução…</p>` : !o ? `<p class="note">Clique em Atualizar para o coach analisar seus números.</p>` : ""}
+    ${p.noteAt && o ? `<div class="note">Análise atualizada ${agoText(p.noteAt)}</div>` : ""}
+  </div>`;
 }
 function coachNoteHTML(p){
   const o = p.noteObj;
@@ -1200,7 +1220,7 @@ function logFormHTML(){
         <div class="fld" ${show("run","bike","swim","brick","other")}><label for="l_dist">Distância ${sp === "swim" ? "(m)" : "(km)"}</label><input id="l_dist" type="number" min="0" step="${sp === "swim" ? 25 : 0.01}" placeholder="${sp === "swim" ? "2000" : "opcional"}"></div>
         <div class="fld" ${show("run","bike","brick")}><label for="l_elev">Subida acumulada (m)</label><input id="l_elev" type="number" min="0" placeholder="opcional"></div>
         <div class="fld" ${show("run")}><label>Terreno</label>${pills("l_terreno", ["Plano","Ondulado","Muita subida"], "")}</div>
-        <div class="fld" ${show("bike","brick")}><label for="l_watts">Potência média (W)</label><input id="l_watts" type="number" min="0" max="2000" placeholder="se tiver medidor"></div>
+        <div class="fld" ${show("bike","brick")}><span class="lblq"><label for="l_watts">Potência média (W)</label>${qtip("Só se a bike ou o rolo tiver medidor de potência. É a média em watts do treino.")}</span><input id="l_watts" type="number" min="0" max="2000" placeholder="se tiver medidor"></div>
         <div class="fld" ${show("bike","run","brick")}><label for="l_cad">Cadência média</label><input id="l_cad" type="number" min="0" max="250" placeholder="${sp === "run" ? "passos/min" : "rpm"}"></div>
         <div class="fld" ${show("swim")}><label>Estilo principal</label>${pills("l_estilo", ["Crawl","Misto","Outro"], "Crawl")}</div>
         <div class="fld full" ${show("swim")}><label>Acessórios</label><div class="days pills multi">${["Pullbuoy","Palmar","Pé de pato","Snorkel","Prancha"].map(x => `<label><input type="checkbox" name="l_acess" value="${x}">${x}</label>`).join("")}</div></div>
@@ -1210,7 +1230,7 @@ function logFormHTML(){
           <button type="button" class="btn ghost sm" data-act="addexrow" style="margin-top:8px">+ exercício</button></div>
       </div></fieldset>
       <fieldset><legend>3 · Como foi</legend><div class="f">
-        <div class="fld full"><label>Esforço percebido: quão difícil foi? <span class="note" id="l_zone"></span></label>${rpeChips("l_rpe", 5)}</div>
+        <div class="fld full"><span class="lblq"><label>Esforço percebido: quão difícil foi? <span class="note" id="l_zone"></span></label>${qtip("Nota de 1 a 10 para o quanto o treino foi difícil no geral: 1–2 bem leve, 3–4 confortável (conversa), 5–6 moderado, 7–8 forte, 9–10 no limite. É com ela que o app calcula a carga quando não há frequência cardíaca.")}</span>${rpeChips("l_rpe", 5)}</div>
         <div class="fld"><label>Como o corpo respondeu</label>${pills("l_feel", ["Ótimo","Bem","Normal","Pesado","Mal"], "Normal")}</div>
         <div class="fld"><label>Clima</label>${pills("l_clima", ["Fresco","Agradável","Calor","Chuva","Indoor"], "")}</div>
         <div class="fld" ${sp === "strength" ? "hidden" : ""}><label for="l_hr">FC média</label><input id="l_hr" type="number" min="60" max="220" placeholder="opcional"></div>
@@ -1224,7 +1244,7 @@ function logFormHTML(){
       </div></fieldset>
       <fieldset><legend>4 · Combustível</legend><div class="f">
         <div class="fld"><label>Comeu antes?</label>${pills("l_pre", ["Jejum","Lanche leve","Refeição completa"], "")}</div>
-        <div class="fld" ${sp === "strength" ? "hidden" : ""}><label for="l_carbo">Carboidrato durante (g)</label><input id="l_carbo" type="number" min="0" max="600" placeholder="gel ≈ 25 g"></div>
+        <div class="fld" ${sp === "strength" ? "hidden" : ""}><span class="lblq"><label for="l_carbo">Carboidrato durante (g)</label>${qtip("Gramas de carboidrato consumidas durante o treino. Um gel tem cerca de 25 g; uma banana, 25 g; 500 ml de isotônico, 30 g.")}</span><input id="l_carbo" type="number" min="0" max="600" placeholder="gel ≈ 25 g"></div>
         <div class="fld" ${sp === "strength" ? "hidden" : ""}><label for="l_agua">Água / isotônico (ml)</label><input id="l_agua" type="number" min="0" max="5000" step="50" placeholder="500"></div>
       </div></fieldset>
       <fieldset><legend>5 · Observações</legend>
@@ -1269,6 +1289,9 @@ function logPreviewHTML(x){
   if (x.rpe >= 7 && /leve|Regenerativo|Rodagem/.test(x.tipo)) warn.push("Esforço alto para um treino leve. Dias fáceis devem ser realmente fáceis.");
   return `<div class="kv" style="margin:0">${items.map(([k,v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("")}</div>${warn.map(w => `<div class="note warnline">${esc(w)}</div>`).join("")}`;
 }
+function qtip(text){
+  return `<span class="qwrap"><button type="button" class="qtip" aria-label="O que é isso?" aria-expanded="false">?</button><span class="qpop" role="tooltip" hidden>${text}</span></span>`;
+}
 function todayCheckin(){ return (S.checkins||[]).find(c => c.data === dayKey(new Date())); }
 function checkinHTML(){
   const c = todayCheckin(), recent = (S.checkins||[]).slice(-7);
@@ -1281,25 +1304,19 @@ function checkinHTML(){
     <form class="ci" id="checkin">
       <div class="cigroup"><div class="cig-t">Sono</div>
         <div class="cirow">
-          <div class="fld"><label for="ci_sono">Horas dormidas</label><input id="ci_sono" type="number" step="0.25" min="0" max="14" value="${esc(v.sono ?? "")}" placeholder="7,5"></div>
-          <div class="fld"><label for="ci_qual">Como dormiu</label><input id="ci_qual" type="number" min="1" max="5" value="${esc(v.qual ?? "")}" placeholder="1 a 5"></div>
-          <div class="fld"><label for="ci_score">Sleep score</label><input id="ci_score" type="number" min="0" max="100" value="${esc(v.score ?? "")}" placeholder="0 a 100"></div>
+          <div class="fld"><span class="lblq"><label for="ci_sono">Horas dormidas</label>${qtip("Quantas horas você dormiu de fato na última noite. Ex: 7,5 = sete horas e meia.")}</span><input id="ci_sono" type="number" step="0.25" min="0" max="14" value="${esc(v.sono ?? "")}" placeholder="7,5"></div>
+          <div class="fld"><span class="lblq"><label for="ci_qual">Como dormiu</label>${qtip("Sua sensação ao acordar: 1 = péssimo, 3 = normal, 5 = ótimo. Use se não tiver relógio.")}</span><input id="ci_qual" type="number" min="1" max="5" value="${esc(v.qual ?? "")}" placeholder="1 a 5"></div>
+          <div class="fld"><span class="lblq"><label for="ci_score">Sleep score</label>${qtip("Nota de 0 a 100 que o Garmin dá para o seu sono (app Garmin Connect → Sono). No Apple Watch, use a nota do app de sono que você tiver.")}</span><input id="ci_score" type="number" min="0" max="100" value="${esc(v.score ?? "")}" placeholder="0 a 100"></div>
         </div></div>
       <div class="cigroup"><div class="cig-t">Recuperação</div>
         <div class="cirow">
-          <div class="fld"><label for="ci_bb">Body Battery</label><input id="ci_bb" type="number" min="0" max="100" value="${esc(v.bb ?? "")}" placeholder="0 a 100"></div>
-          <div class="fld"><label for="ci_hrv">HRV (ms)</label><input id="ci_hrv" type="number" min="0" max="250" value="${esc(v.hrv ?? "")}" placeholder="ex: 55"></div>
-          <div class="fld"><label for="ci_rhr">FC de repouso</label><input id="ci_rhr" type="number" min="30" max="120" value="${esc(v.rhr ?? "")}" placeholder="bpm"></div>
-          <div class="fld"><label for="ci_cans">Cansaço</label><input id="ci_cans" type="number" min="1" max="5" value="${esc(v.cans ?? "")}" placeholder="1 a 5"></div>
+          <div class="fld"><span class="lblq"><label for="ci_bb">Body Battery</label>${qtip("Energia do corpo de 0 a 100 medida pelo Garmin. Veja o valor ao acordar. Abaixo de 40 indica pouca recuperação.")}</span><input id="ci_bb" type="number" min="0" max="100" value="${esc(v.bb ?? "")}" placeholder="0 a 100"></div>
+          <div class="fld"><span class="lblq"><label for="ci_hrv">HRV (ms)</label>${qtip("Variabilidade da frequência cardíaca durante o sono, em milissegundos. Compare com o seu normal: mais alto = recuperado; bem mais baixo = cansaço, estresse ou doença chegando.")}</span><input id="ci_hrv" type="number" min="0" max="250" value="${esc(v.hrv ?? "")}" placeholder="ex: 55"></div>
+          <div class="fld"><span class="lblq"><label for="ci_rhr">FC de repouso</label>${qtip("Batimentos por minuto em repouso, ao acordar. Se subir 5 ou mais acima do seu normal, costuma ser sinal de fadiga.")}</span><input id="ci_rhr" type="number" min="30" max="120" value="${esc(v.rhr ?? "")}" placeholder="bpm"></div>
+          <div class="fld"><span class="lblq"><label for="ci_cans">Cansaço</label>${qtip("Como o corpo está hoje: 1 = inteiro, 3 = normal, 5 = destruído. Pernas pesadas e dor muscular contam.")}</span><input id="ci_cans" type="number" min="1" max="5" value="${esc(v.cans ?? "")}" placeholder="1 a 5"></div>
         </div></div>
       <div class="cifoot">
-        <details class="cihelp"><summary>O que é cada campo?</summary><dl>
-          <dt>Como dormiu</dt><dd>Sua sensação: 1 péssimo, 5 ótimo. Para quem não tem relógio.</dd>
-          <dt>Sleep score / Body Battery</dt><dd>Notas de 0 a 100 do Garmin (no Apple Watch, use o app de sono que tiver).</dd>
-          <dt>HRV</dt><dd>Variabilidade da frequência cardíaca no sono, em ms. Acima do seu normal = recuperado; bem abaixo = cansaço.</dd>
-          <dt>FC de repouso</dt><dd>Batimentos ao acordar. Subir 5+ bpm do seu normal costuma indicar fadiga.</dd>
-          <dt>Cansaço</dt><dd>1 inteiro, 5 destruído.</dd>
-        </dl><p class="note" style="margin:6px 0 0">Preencha só o que tiver. Nada é obrigatório.</p></details>
+        <p class="note" style="margin:0">Preencha só o que tiver. Toque no <span class="qinline">?</span> para entender cada campo.</p>
         <button class="btn" type="submit">Salvar check-in</button>
       </div>
     </form></section>`;
@@ -1495,16 +1512,14 @@ function viewPainel(){
   </div>
   ${ckDone ? checkinHTML() : ""}
 
-  <section class="panel" style="margin-top:16px"><div class="ph"><h2>Como você estava e como está</h2><span class="note">média semanal · 8 semanas atrás vs últimas 4 semanas</span></div>
-    <div class="grid2" style="margin-top:0">
-      <div class="tbl">${rows.length ? `<table class="cmp"><thead><tr><th>Indicador</th><th class="num">Antes</th><th class="num">Hoje</th><th class="num">Variação</th></tr></thead><tbody>
-        ${rows.map(r => `<tr><td>${r.c ? `<i class="dot" style="--c:var(--${r.c})"></i>` : ""}${r.k}</td><td class="num muted">${r.a ? r.f(r.a) : "—"}</td><td class="num">${r.b ? r.f(r.b) : "—"}</td><td class="num">${deltaHTML(r)}</td></tr>`).join("")}</tbody></table>`
-        : `<p class="muted" style="margin:0">Sem histórico suficiente para comparar.</p>`}</div>
-      <div class="stack"><div class="eyebrow">Leitura do coach</div>
-        <div class="coachnote">${p.noteObj || p.note ? coachNoteHTML(p) : `<span class="muted">${S.busy.note ? "Analisando sua evolução…" : "O relatório aparece após a primeira sincronização."}</span>`}</div>
-        ${activeComplaints().length ? `<div><div class="eyebrow" style="margin-bottom:8px">Corpo</div>${complaintsHTML(false)}</div>` : ""}
-        <div><button class="btn ghost" data-act="note" ${S.busy.note ? "disabled" : ""}>${S.busy.note ? '<span class="spin"></span> Analisando' : "Atualizar relatório"}</button></div></div>
-    </div>
+  <section class="panel" style="margin-top:16px"><div class="ph"><h2>Como você estava × como está</h2><span class="note">média por semana · 8 semanas atrás × últimas 4 semanas</span></div>
+    <div class="tbl">${rows.length ? `<table class="cmp"><thead><tr><th>Indicador</th><th class="num">Antes</th><th class="num">Hoje</th><th class="num">Variação</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${r.c ? `<i class="dot" style="--c:var(--${r.c})"></i>` : ""}${r.k}</td><td class="num muted">${r.a ? r.f(r.a) : "—"}</td><td class="num">${r.b ? r.f(r.b) : "—"}</td><td class="num">${deltaHTML(r)}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="muted" style="margin:0">Sem histórico suficiente para comparar.</p>`}</div>
+  </section>
+  <section class="panel coachread" style="margin-top:16px"><div class="ph"><h2>Leitura do coach</h2><button class="btn ghost sm" data-act="note" ${S.busy.note ? "disabled" : ""}>${S.busy.note ? '<span class="spin"></span> Analisando' : "Atualizar"}</button></div>
+    ${coachReadHTML(p, rows)}
+    ${activeComplaints().length ? `<div class="cr-block"><div class="eyebrow">Corpo</div>${complaintsHTML(false)}</div>` : ""}
   </section>
 
   <div style="margin-top:16px">${chatBox(true)}</div>`;
@@ -1821,6 +1836,9 @@ function render(){
 /* ---------- eventos ---------- */
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) go(b.dataset.v); });
 document.addEventListener("click", e => {
+  const qt = e.target.closest(".qtip");
+  document.querySelectorAll(".qtip[aria-expanded='true']").forEach(b => { if (b !== qt){ b.setAttribute("aria-expanded","false"); b.nextElementSibling.hidden = true; } });
+  if (qt){ const open = qt.getAttribute("aria-expanded") !== "true"; qt.setAttribute("aria-expanded", String(open)); qt.nextElementSibling.hidden = !open; e.preventDefault(); return; }
   const g = e.target.closest("[data-go]"); if (g){ go(g.dataset.go); return; }
   const w = e.target.closest("[data-week]"); if (w){ S.week = +w.dataset.week; render(); return; }
   const q = e.target.closest("[data-ask]"); if (q){ sendChat(q.dataset.ask); return; }

@@ -162,7 +162,7 @@ input,select,textarea{font:400 14.5px/1.4 var(--body);color:var(--ink);backgroun
 .cigroup{display:grid;grid-template-columns:110px minmax(0,1fr);gap:12px;align-items:end}
 .cig-t{font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding-bottom:13px}
 .cirow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.cirow .fld label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 .cifoot{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px}
 .cihelp{font-size:13px;color:var(--muted);flex:1;min-width:220px}
 .cihelp summary{cursor:pointer;font-weight:600;color:var(--ink)}
@@ -298,6 +298,21 @@ nav.tabs button.me{display:inline-flex;align-items:center;gap:6px;margin-left:6p
 .kudos-card li{display:flex;flex-direction:column;gap:3px;font-size:13.5px}
 .kudos-card li b{color:var(--ok)}
 .kudos-card li span{color:var(--muted)}
+.lblq{display:flex;align-items:center;gap:6px;min-width:0}
+.lblq label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qwrap{position:relative;display:inline-flex;flex:none}
+.qtip,.qinline{width:16px;height:16px;border-radius:50%;border:0;padding:0;background:var(--ink);color:var(--bg);font:700 10.5px/16px var(--body);text-align:center;cursor:pointer;display:inline-block}
+.qtip:focus-visible{outline:2px solid var(--swim);outline-offset:2px}
+.qtip[aria-expanded="true"]{background:var(--swim)}
+.qpop{position:absolute;z-index:20;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:min(260px,80vw);padding:10px 12px;border-radius:10px;background:var(--ink);color:var(--bg);font:400 12.5px/1.45 var(--body);box-shadow:0 8px 24px rgba(0,0,0,.18);white-space:normal;text-transform:none;letter-spacing:0}
+.qpop::before{content:"";position:absolute;top:-5px;left:50%;width:10px;height:10px;background:var(--ink);transform:translateX(-50%) rotate(45deg)}
+.cirow .fld:first-child .qpop,.cirow .fld:nth-child(odd) .qpop{left:0;transform:none}
+.cirow .fld:first-child .qpop::before,.cirow .fld:nth-child(odd) .qpop::before{left:12px}
+.cr{display:flex;flex-direction:column;gap:16px}
+.cr-block{display:flex;flex-direction:column;gap:8px}
+.cr-perfil{margin:0;font-size:15px;font-weight:500}
+.cr-att{margin:4px 0 0;font-size:14px;color:var(--muted)}
+.cn-list li.t-ne{border-left-color:var(--line)}
 .first{margin-bottom:16px}
 .first .checkin{margin-top:0;border-color:var(--ink)}
 .meter{height:8px;border-radius:4px;background:var(--soft);overflow:hidden}
