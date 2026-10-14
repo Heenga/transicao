@@ -722,6 +722,7 @@ Condicionamento: ${JSON.stringify(fitnessForAI())}`;
       createdAt: S.plan?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
     S.week = Math.max(0, Math.min(Math.floor((mondayOf(hoje) - start) / (7*864e5)), S.plan.semanas.length - 1));
     await save("plan", S.plan);
+    pushToIntervals({ quiet: true });
     flash("plano", novaSemana ? "Treinos da semana gerados." : opts.auto ? "Treinos restantes da semana reajustados a partir do que você fez." : "Treinos da semana planejados.", false);
     coachNote(true);
   } catch (e) {
@@ -1173,7 +1174,7 @@ function movePlanned(ref, toDia, swapDay){
   const [wi, dia, i] = ref.split(".").map(Number), from = planDay(wi, dia), to = planDay(wi, toDia);
   if (swapDay){ const a = from.sessoes, b = to.sessoes; from.sessoes = b; to.sessoes = a; [...a, ...b].forEach(x => { if (x.sport !== "rest") x.movido = true; }); }
   else { const [s] = from.sessoes.splice(i, 1); if (!s) return; s.movido = true; to.sessoes = [...to.sessoes.filter(x => x.sport !== "rest"), s]; }
-  S.plan.editedAt = new Date().toISOString(); S.move = null; S.openSess = null; save("plan", S.plan);
+  S.plan.editedAt = new Date().toISOString(); S.move = null; S.openSess = null; save("plan", S.plan); pushToIntervals({ quiet: true });
   flash(S.view, swapDay ? `Dias trocados: ${DOW[dia]} ⇄ ${DOW[toDia]}.` : `Treino movido para ${DOW[toDia]} ${planDate(wi, toDia).getDate()}.`, false);
 }
 function complaintsHTML(withActions){
@@ -2140,10 +2141,69 @@ function profileFormHTML(onboarding){
       <div class="fld full"><div class="row"><button class="btn" type="submit">${onboarding ? "Concluir cadastro" : "Salvar perfil"}</button>${!onboarding ? '<span class="note">Ao mudar dias, horas ou equipamento, os treinos da semana são reajustados sozinhos.</span>' : ""}</div></div>
     </form>`;
 }
+/* ---------- treinos planejados → intervals.icu → Garmin ---------- */
+const IV_TYPE = { run: "Run", bike: "Ride", swim: "Swim", strength: "WeightTraining" };
+const paceSec = t => { const m = String(t || "").match(/(\d{1,2}):(\d{2})/g); if (!m) return null; const xs = m.slice(0, 2).map(x => { const [a, b] = x.split(":"); return +a*60 + +b; }); return xs.reduce((a, b) => a + b) / xs.length; };
+const isRunStep = e => /corr|run|trote|pace|\/km/i.test(`${e.fase || ""} ${e.desc || ""}`);
+/** Passos no formato do intervals.icu ("- Aquecimento 10m Z1 HR", "- Principal 20m 6:50/km Pace"): o relógio guia cada etapa. */
+function ivSteps(etapas, sport, s){
+  return (etapas || []).filter(e => Number(e.min) > 0).map(e => {
+    const txt = `${e.fase || ""} ${e.desc || ""}`, z = (txt.match(/Z[1-5]/i) || String(s.zona || "").match(/Z[1-5]/i) || [])[0]?.toUpperCase();
+    const easy = !/stride|acelera|tiro|forte|teste/i.test(txt) && /aquec|desaquec|solto|regenera|caminh|recupera/i.test(txt);
+    const p = sport === "run" ? paceSec(e.desc) ?? (easy ? null : paceSec(s.pace)) : null;
+    // natação: sem alvo de FC (no relógio a FC na piscina é imprecisa); aquecimento/desaquecimento sempre Z1
+    const target = sport === "swim" ? "" : p ? `${mmss(p)}/km Pace` : easy ? "Z1 HR" : z ? `${z} HR` : "";
+    const label = String(e.fase || "").replace(/[^\p{L} ]/gu, " ").split(/\s+/).filter(w => w.length > 1).join(" ").slice(0, 30);
+    return `- ${label} ${Math.round(e.min)}m ${target}`.replace(/\s+/g, " ").trim();
+  });
+}
+function ivEvents(s, date, i){
+  const base = { start_date_local: `${date}T00:00:00` }, notes = [s.dica, ...(s.etapas || []).map(e => `${e.fase}: ${e.desc}`)].filter(Boolean).join("\n");
+  const one = (sport, id, name, etapas, min) => ({ ...base, external_id: id, type: IV_TYPE[sport], name, moving_time: (Number(min) || 0) * 60,
+    description: [`${name}${s.pace && sport === "run" ? ` · pace ${s.pace}` : ""}`, notes, "", ...ivSteps(etapas, sport, s)].join("\n").trim() });
+  if (s.sport === "brick"){
+    const m = sportMinutes(s), bikeE = (s.etapas || []).filter(e => !isRunStep(e)), runE = (s.etapas || []).filter(isRunStep);
+    return [one("bike", `tr-${date}-${i}-b`, `Transição (bike): ${s.titulo}`, bikeE, m.bike), one("run", `tr-${date}-${i}-r`, `Transição (corrida): ${s.titulo}`, runE, m.run)];
+  }
+  if (s.sport === "strength") return [{ ...base, external_id: `tr-${date}-${i}`, type: "WeightTraining", name: s.titulo || "Força", moving_time: (Number(s.min) || 0) * 60,
+    description: [s.titulo, s.dica, ...(s.exercicios || []).map(x => `• ${x.nome}: ${[x.series && x.reps ? `${x.series}x${x.reps}` : "", x.carga].filter(Boolean).join(" · ")}`)].filter(Boolean).join("\n") }];
+  return IV_TYPE[s.sport] ? [one(s.sport, `tr-${date}-${i}`, s.titulo || SPORTS[s.sport], s.etapas, s.min)] : [];
+}
+/** Manda os treinos de hoje até o fim do plano; apaga do calendário o que o coach tirou. */
+async function pushToIntervals(opts = {}){
+  if (!window.TRI?.me?.intervals?.connected || !S.plan || S.busy.intervals) return;
+  const todayK = dayKey(new Date()), events = [];
+  Object.entries(planDayMap(S.plan)).filter(([k]) => k >= todayK).sort().forEach(([k, ss]) => ss.forEach((x, i) => events.push(...ivEvents(x, k, i))));
+  const ids = events.map(e => e.external_id), remove = (S.plan.ivSent || []).filter(id => !ids.includes(id) && id.slice(3, 13) >= todayK);
+  busy("intervals", true); if (!opts.quiet) render();
+  try {
+    const r = await TRI.api("/api/intervals/push", { method: "POST", body: JSON.stringify({ events, remove }) });
+    S.plan.ivSent = ids; S.plan.ivAt = new Date().toISOString(); save("plan", S.plan);
+    S.ivSteps = r.steps || []; // passos que o intervals.icu reconheceu em cada treino (diagnóstico)
+    const asText = S.ivSteps.filter(x => x.steps === 0 && events.find(e => e.external_id === x.external_id && e.type !== "WeightTraining")).length;
+    if (asText && !opts.quiet){ flash(S.view, `Enviado, mas ${asText} treino${asText === 1 ? "" : "s"} ficou só como texto (sem etapas no relógio). Me avise para eu ajustar o formato.`, true); busy("intervals", false); render(); return; }
+    if (!opts.quiet) flash(S.view, `${r.sent} treino${r.sent === 1 ? "" : "s"} enviado${r.sent === 1 ? "" : "s"} ao intervals.icu${r.removed ? `, ${r.removed} removido${r.removed === 1 ? "" : "s"}` : ""}. Em alguns minutos aparecem no Garmin Connect; sincronize o relógio.`, false);
+  } catch (e) { if (!opts.quiet) flash(S.view, e?.message || "Não consegui enviar ao intervals.icu.", true); }
+  busy("intervals", false); render();
+}
+function intervalsCardHTML(){
+  const iv = window.TRI?.me?.intervals;
+  if (iv?.connected) return `<div class="row" style="flex-wrap:wrap"><span class="note">Conectado${iv.athleteName ? ` como <b>${esc(iv.athleteName)}</b>` : ""}${S.plan?.ivAt ? ` · último envio ${agoText(S.plan.ivAt)}` : ""}</span></div>
+    <div class="row" style="margin-top:8px"><button class="btn" data-act="ivpush" ${S.busy.intervals ? "disabled" : ""}>${S.busy.intervals ? '<span class="spin"></span> Enviando' : "Enviar semana para o Garmin"}</button><button class="btn ghost sm" data-act="ivoff">Desconectar</button></div>
+    <p class="note" style="margin:8px 0 0">A semana é enviada sozinha sempre que o coach gera ou reajusta os treinos, e quando você muda um treino de dia.</p>`;
+  return `<ol class="steps" style="margin:4px 0 10px">
+      <li><span>Crie uma conta grátis em <b>intervals.icu</b> (pode entrar com o Strava).</span></li>
+      <li><span>Lá, em <b>Settings → Garmin Connect</b>, conecte o Garmin e marque <b>"Upload planned workouts"</b>.</span></li>
+      <li><span>Ainda em Settings, desça até <b>Developer Settings</b>, gere a <b>API Key</b> e copie.</span></li>
+      <li><span>Cole a chave aqui embaixo e toque em Conectar.</span></li></ol>
+    <form id="ivform" class="row" style="flex-wrap:wrap"><input id="iv_key" placeholder="Cole a API Key do intervals.icu" autocomplete="off" spellcheck="false" style="flex:1;min-width:200px"><button class="btn" type="submit" ${S.busy.ivconnect ? "disabled" : ""}>${S.busy.ivconnect ? '<span class="spin"></span>' : "Conectar"}</button></form>
+    <p class="note" style="margin:8px 0 0">A chave fica guardada criptografada no servidor; ninguém do grupo consegue ver.</p>`;
+}
 function connectionsHTML(){
   return `<section class="panel"><div class="ph"><h2>Conexões</h2></div>
     ${sourceCard("strava", "STR", "#FC4C02", "Strava", "Cada participante conecta a própria conta do Strava. Garmin e Apple Watch enviam os treinos ao Strava automaticamente; daqui o app lê tudo.",
       stravaActionHTML())}
+    ${sourceCard("intervals", "ICU", "#E8473F", "Treinos no relógio Garmin (via intervals.icu)", "Manda os treinos que o coach montou para o calendário do Garmin Connect: o relógio guia cada etapa (aquecimento, tiros, pace e zonas).", intervalsCardHTML())}
     <details class="more"><summary>Importar arquivos do Garmin ou Apple Watch</summary>
     ${sourceCard("garmin", "GRM", "#007CC3", "Garmin",
       `<b>Automático:</b> no app Garmin Connect, Mais → Configurações → Aplicativos conectados → Strava. Depois é só sincronizar o Strava aqui.<br><b>Arquivos:</b> envie .fit, .tcx, .gpx (Garmin Connect → atividade → ⚙ → Exportar original), o CSV da lista de atividades ou o .zip da exportação completa da conta.`,
@@ -2259,6 +2319,8 @@ document.addEventListener("click", e => {
      exportme: exportMine, exportgroup: exportGroup, reload: reloadAll, stravaon: () => TRI.connectStrava(), stravaoff: async () => { await TRI.disconnectStrava(); flash(S.view, "Strava desconectado.", false); },
      cleardietimg: () => { S.dietImg = null; if (S.dietImgUrl) URL.revokeObjectURL(S.dietImgUrl); S.dietImgUrl = null; render(); setTimeout(() => $("#dietimg")?.click(), 0); },
      addexrow: () => { $("#l_ex")?.insertAdjacentHTML("beforeend", strengthRow()); },
+     ivpush: () => pushToIntervals(),
+     ivoff: async () => { await TRI.api("/api/intervals/disconnect", { method: "POST" }).catch(() => {}); TRI.me.intervals = { connected: false }; flash(S.view, "intervals.icu desconectado. Os treinos já enviados continuam lá.", false); },
      clearchat: () => { S.chat = []; save("chat", { messages: [] }); render(); } })[a.dataset.act]?.();
 });
 document.addEventListener("submit", e => {
@@ -2291,6 +2353,13 @@ document.addEventListener("submit", e => {
       flash("dados", "Perfil salvo. Reajustando os treinos da semana com as novas configurações…", false);
       maybeReplan();
     } else flash("dados", "Perfil salvo.", false);
+  }
+  if (e.target.id === "ivform"){
+    const apiKey = $("#iv_key").value.trim(); if (!apiKey){ flash(S.view, "Cole a API Key do intervals.icu.", true); return; }
+    busy("ivconnect", true); render();
+    TRI.api("/api/intervals/connect", { method: "POST", body: JSON.stringify({ apiKey }) })
+      .then(r => { TRI.me.intervals = { connected: true, athleteName: r.athleteName }; busy("ivconnect", false); flash(S.view, "intervals.icu conectado! Enviando a semana para o Garmin…", false); pushToIntervals(); })
+      .catch(err => { busy("ivconnect", false); flash(S.view, err?.message || "Não consegui conectar.", true); });
   }
   if (e.target.id === "actnote"){
     const a = S.activities.find(x => x.id === e.target.dataset.id); if (!a) return;
