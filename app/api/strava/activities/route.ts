@@ -1,4 +1,4 @@
-import { requireUser, json, fail, rateLimited } from "@/lib/server";
+import { requireUser, json, fail, rateLimited, guard } from "@/lib/server";
 import { stravaToken, stravaGet } from "@/lib/strava";
 
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ export const maxDuration = 30;
  * ?days=60&page=1&per_page=100 — o app pede primeiro os recentes (rápido) e depois o histórico.
  * ?zones=1 devolve as zonas de FC/potência.
  */
-export async function GET(req: Request) {
+async function handler(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
   if (rateLimited("strava:" + auth.user.id, 30, 15 * 60_000)) return fail("rate_limited", "Muitas sincronizações seguidas. Espere alguns minutos.", 429);
@@ -42,3 +42,4 @@ export async function GET(req: Request) {
   }));
   return json({ activities: acts, has_more: acts.length === params.per_page });
 }
+export const GET = guard("A leitura do Strava", "STRAVA-02", handler);

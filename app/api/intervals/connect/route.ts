@@ -1,10 +1,10 @@
-import { requireUser, json, fail } from "@/lib/server";
+import { requireUser, json, fail, guard } from "@/lib/server";
 import { intervalsFetch, saveIntervals } from "@/lib/intervals";
 
 export const runtime = "nodejs";
 
 /** Confere a chave do intervals.icu e guarda criptografada. */
-export async function POST(req: Request) {
+async function handler(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
   let body: any; try { body = await req.json(); } catch { return fail("bad_request", "Algo deu errado. Tente de novo."); }
@@ -16,3 +16,4 @@ export async function POST(req: Request) {
   await saveIntervals(auth.user.id, apiKey, { id: String(r.data.id), name: String(r.data.name || "") });
   return json({ ok: true, athleteId: r.data.id, athleteName: r.data.name || "" });
 }
+export const POST = guard("A conexão com o Garmin", "GARMIN-01", handler);

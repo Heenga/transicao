@@ -1,4 +1,4 @@
-import { requireUser, json, fail, rateLimited } from "@/lib/server";
+import { requireUser, json, fail, rateLimited, guard } from "@/lib/server";
 import { intervalsFetch, loadIntervals } from "@/lib/intervals";
 
 export const runtime = "nodejs";
@@ -7,7 +7,7 @@ export const runtime = "nodejs";
  * Envia (cria ou atualiza) os treinos planejados no calendário do intervals.icu, que repassa ao Garmin.
  * Corpo: { events: [...], remove: ["external_id", ...] }. Cada evento usa external_id para não duplicar.
  */
-export async function POST(req: Request) {
+async function handler(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
   if (rateLimited("intervals:" + auth.user.id, 30, 10 * 60_000)) return fail("rate_limited", "Muitos envios seguidos. Espere alguns minutos.", 429);
@@ -29,3 +29,4 @@ export async function POST(req: Request) {
   const steps = Array.isArray(r.data) ? r.data.map((x: any) => ({ external_id: x.external_id, steps: x.workout_doc?.steps?.length ?? 0 })) : [];
   return json({ ok: true, sent: events.length, removed: remove.length, steps });
 }
+export const POST = guard("O envio para o Garmin", "GARMIN-02", handler);

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { requireUser, json, fail, rateLimited } from "@/lib/server";
+import { requireUser, json, fail, rateLimited, guard, devFail } from "@/lib/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // geração do plano pode levar mais de 1 minuto
@@ -10,10 +10,10 @@ export const maxDuration = 300; // geração do plano pode levar mais de 1 minut
  * Ferramentas (registrar treino, peso, ajustar plano...) são executadas no navegador,
  * que devolve os resultados numa nova chamada.
  */
-export async function POST(req: Request) {
+async function handler(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
-  if (!process.env.ANTHROPIC_API_KEY) return fail("ai_off", "O coach está indisponível no momento. Tente mais tarde.", 503);
+  if (!process.env.ANTHROPIC_API_KEY) return devFail("O coach", "COACH-01");
   if (rateLimited("ai:" + auth.user.id, 40, 10 * 60_000)) return fail("rate_limited", "Muitas mensagens seguidas. Espere alguns minutos.", 429);
 
   let body: any;
@@ -41,7 +41,8 @@ export async function POST(req: Request) {
   } catch (e: any) {
     const status = e?.status || 500;
     if (status === 429) return fail("rate_limited", "O coach está atendendo muita gente agora. Tente em alguns segundos.", 429);
-    if (status === 401) return fail("ai_off", "O coach está indisponível no momento. Tente mais tarde.", 503);
+    if (status === 401 || status === 403) return devFail("O coach", "COACH-02");
     return fail("upstream_error", "O coach não respondeu. Tente de novo.", 502);
   }
 }
+export const POST = guard("O coach", "COACH-01", handler);

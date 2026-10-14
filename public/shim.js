@@ -176,7 +176,7 @@
       const built = cfg.builtAt ? new Date(cfg.builtAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
       $("#appversion").textContent = ["Versão " + cfg.version, built ? "atualizada em " + built : ""].filter(Boolean).join(" · "); $("#appversion").title = cfg.commit || ""; // código do commit só no "passar o mouse", para o organizador
     }
-    if (!cfg.supabaseUrl || !window.supabase) { $("#auth").hidden = false; showErr("O app está em manutenção agora. Tente de novo em alguns minutos."); return; }
+    if (!cfg.supabaseUrl || !window.supabase) { $("#auth").hidden = false; showErr("O app está indisponível no momento. Avise o desenvolvedor do app (código APP-02)."); return; }
     sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } });
     $("#logout").addEventListener("click", logout);
     $("#authform").addEventListener("submit", async e => {

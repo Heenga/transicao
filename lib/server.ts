@@ -1,10 +1,19 @@
 import { createClient, SupabaseClient, User } from "@supabase/supabase-js";
 import crypto from "crypto";
 
+export class ConfigError extends Error { name = "ConfigError"; }
 export const env = (k: string, fallback?: string) => {
   const v = process.env[k] ?? fallback;
-  if (v === undefined || v === "") throw new Error(`Variável de ambiente ausente: ${k}`);
+  if (v === undefined || v === "") throw new ConfigError(`Variável de ambiente ausente: ${k}`);
   return v;
+};
+/** Problema que só o desenvolvedor resolve (configuração): a pessoa vê o que avisar e um código curto. */
+export const devFail = (what: string, code: string) =>
+  fail("config", `${what} está indisponível no momento. Avise o desenvolvedor do app (código ${code}).`, 503);
+/** Envolve uma rota: falta de configuração vira devFail em vez de erro genérico. */
+export const guard = (what: string, code: string, h: (req: Request) => Promise<Response>) => async (req: Request) => {
+  try { return await h(req); }
+  catch (e: any) { if (e?.name === "ConfigError") { console.error(code, e.message); return devFail(what, code); } throw e; }
 };
 
 /** URL base do projeto Supabase, aceitando também a URL da API REST colada por engano (…/rest/v1/). */

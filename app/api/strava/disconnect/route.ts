@@ -1,10 +1,10 @@
-import { requireUser, supabaseAdmin, json } from "@/lib/server";
+import { requireUser, supabaseAdmin, json, guard } from "@/lib/server";
 import { stravaToken } from "@/lib/strava";
 
 export const runtime = "nodejs";
 
 /** Desconecta o Strava do usuário (revoga no Strava e apaga os tokens). */
-export async function POST(req: Request) {
+async function handler(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
   const token = await stravaToken(auth.user.id);
@@ -12,3 +12,4 @@ export async function POST(req: Request) {
   await supabaseAdmin().from("strava_tokens").delete().eq("user_id", auth.user.id);
   return json({ ok: true });
 }
+export const POST = guard("A conexão com o Strava", "STRAVA-03", handler);

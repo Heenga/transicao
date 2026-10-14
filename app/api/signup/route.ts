@@ -1,4 +1,4 @@
-import { supabaseAdmin, usernameToEmail, json, fail, env, rateLimited } from "@/lib/server";
+import { supabaseAdmin, usernameToEmail, json, fail, env, rateLimited, guard } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 const REQUIRE_GROUP_CODE = false;
 
 /** Cria a conta (usuário + senha); o limite de membros continua valendo. */
-export async function POST(req: Request) {
+async function handler(req: Request) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] || "local";
   if (rateLimited("signup:" + ip, 8, 10 * 60_000)) return fail("rate_limited", "Muitas tentativas. Espere alguns minutos.", 429);
 
@@ -46,3 +46,4 @@ export async function POST(req: Request) {
 
   return json({ ok: true, username });
 }
+export const POST = guard("O cadastro", "CONTA-01", handler);

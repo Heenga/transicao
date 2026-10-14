@@ -1,9 +1,9 @@
-import { requireUser, json, env, signState } from "@/lib/server";
+import { requireUser, json, env, signState, guard } from "@/lib/server";
 
 export const runtime = "nodejs";
 
 /** Devolve o endereço de autorização do Strava para ESTE usuário (cada um conecta o próprio). */
-export async function POST(req: Request) {
+async function handler(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
   const url = new URL("https://www.strava.com/oauth/authorize");
@@ -15,3 +15,4 @@ export async function POST(req: Request) {
   url.searchParams.set("state", signState(auth.user.id));
   return json({ url: url.toString() });
 }
+export const POST = guard("A conexão com o Strava", "STRAVA-01", handler);

@@ -1,10 +1,10 @@
-import { requireUser, supabaseAdmin, json } from "@/lib/server";
+import { requireUser, supabaseAdmin, json, guard } from "@/lib/server";
 import { loadIntervals } from "@/lib/intervals";
 
 export const runtime = "nodejs";
 
 /** Quem sou eu: usuário, se é organizador e se o Strava está conectado. */
-export async function GET(req: Request) {
+async function handler(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
   const sb = supabaseAdmin();
@@ -20,3 +20,4 @@ export async function GET(req: Request) {
     intervals: iv ? { connected: true, athleteName: iv.athleteName } : { connected: false },
   });
 }
+export const GET = guard("O app", "APP-01", handler);

@@ -664,7 +664,7 @@ function maybeReplan(){
 async function generatePlan(opts = {}){
   if (!S.profile){ if (!opts.auto){ go("dados"); flash("dados","Preencha seu perfil antes de gerar o plano.", true); } return; }
   const sample = await cap("sample");
-  if (!sample){ if (!opts.auto){ flash("plano","O coach está indisponível no momento. Tente mais tarde.", true); render(); } return; }
+  if (!sample){ if (!opts.auto){ flash("plano","O coach está indisponível no momento. Avise o desenvolvedor do app (código COACH-03).", true); render(); } return; }
   if (S.busy.plan) return;
   busy("plan", true); render();
   const { hoje, from, to, treinouHoje, novaSemana, aberta } = planWindow();
@@ -713,7 +713,7 @@ Condicionamento: ${JSON.stringify(fitnessForAI())}`;
     flash("plano", novaSemana ? "Treinos da semana gerados." : opts.auto ? "Treinos restantes da semana reajustados a partir do que você fez." : "Treinos da semana planejados.", false);
     coachNote(true);
   } catch (e) {
-    flash("plano", e?.code === "ai_off" ? "O coach está indisponível no momento. Tente mais tarde." : e?.code === "not_granted" ? "Sua sessão expirou. Entre de novo." :
+    flash("plano", e?.code === "config" ? e.message : e?.code === "not_granted" ? "Sua sessão expirou. Entre de novo." :
       e?.code === "rate_limited" ? "Muitas gerações em sequência. Espere um minuto e tente de novo." :
       e?.code === "invalid_json" ? "Os treinos vieram incompletos. Tente de novo." : "Não consegui montar seus treinos agora. Tente de novo em alguns minutos.", true);
   }
@@ -905,7 +905,7 @@ let chatCtl = null;
 async function sendChat(text){
   text = text.trim(); if (!text || S.busy.chat) return;
   const sample = await cap("sample");
-  if (!sample){ S.chat.push({ r:"sys", t:"O coach está indisponível agora." }); render(); return; }
+  if (!sample){ S.chat.push({ r:"sys", t:"O coach está indisponível no momento. Avise o desenvolvedor do app (código COACH-03)." }); render(); return; }
   const img = S.pendingImg; S.pendingImg = null;
   S.chat.push({ r:"u", t: text + (img ? "\n[print anexado]" : "") }); S.chat.push({ r:"a", t:"" });
   busy("chat", true); render(); scrollChat();
@@ -939,7 +939,7 @@ Alimentação: alvos de hoje ${JSON.stringify(dietTargets())}; recentes ${JSON.s
     if (S.chatChangedBody){ S.chat.push({ r:"sys", t:"Queixa registrada no seu perfil." }); S.chatChangedBody = false; }
   } catch (e) {
     bubble.t = e?.text || "";
-    S.chat.push({ r:"sys", t: e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "rate_limited" ? "Muitas mensagens seguidas. Espere um pouco." : e?.code === "cancelled" ? "Resposta interrompida." : "Não consegui responder agora. Tente de novo." });
+    S.chat.push({ r:"sys", t: e?.code === "config" ? e.message : e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "rate_limited" ? "Muitas mensagens seguidas. Espere um pouco." : e?.code === "cancelled" ? "Resposta interrompida." : "Não consegui responder agora. Tente de novo." });
   }
   S.chat = S.chat.filter(m => m.r === "sys" || m.t);
   busy("chat", false);
@@ -1745,7 +1745,7 @@ Responda só com JSON: {"itens":[{"alimento":"arroz branco","porcao":"150 g","ca
     S.dietImg = null; if (S.dietImgUrl){ URL.revokeObjectURL(S.dietImgUrl); S.dietImgUrl = null; }
     S.msg.dieta = null;
   } catch (e) {
-    flash("dieta", e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "invalid_json" ? "A análise veio incompleta. Tente de novo." : "Não consegui analisar agora. Tente de novo.", true);
+    flash("dieta", e?.code === "config" ? e.message : e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "invalid_json" ? "A análise veio incompleta. Tente de novo." : "Não consegui analisar agora. Tente de novo.", true);
   }
   busy("diet", false); render();
 }
