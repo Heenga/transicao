@@ -1,0 +1,15 @@
+{
+  "name": "Transição · All Limits",
+  "short_name": "Transição",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F3EFE4",
+  "theme_color": "#14203D",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

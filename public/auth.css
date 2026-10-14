@@ -1,0 +1,6 @@
+.authscreen{min-height:calc(100vh - 80px);display:grid;place-items:center;padding-block:32px}
+.authcard{width:100%;max-width:420px;display:flex;flex-direction:column;gap:14px;align-items:flex-start;padding:28px}
+.authcard h1{font-size:34px}
+.authcard form{width:100%}
+.authcard .btn[type=submit]{width:100%;justify-content:center;padding:13px}
+.authcard .weektabs{margin-top:4px}
