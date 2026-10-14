@@ -797,7 +797,9 @@ Use só os números acima; se um dado não existir, não cite. Português do Bra
 Responda SÓ com JSON:
 {"resumo":"1 frase: como está hoje",
  "pontos":[{"titulo":"2 a 4 palavras","texto":"1 frase com o número que comprova (ex.: Corrida subiu de 8,0 para 12,4 km/semana)","tipo":"bom|atencao|neutro"}],
- "foco":"1 frase: o que fazer no próximo treino (e como adaptar se o sono/cansaço de hoje estiver ruim)"}
+ "foco":"1 frase: o que fazer no próximo treino (e como adaptar se o sono/cansaço de hoje estiver ruim)",
+ "dicas":[{"tema":"Fadiga|Sono|Alimentação|Cafeína|Hidratação|Recuperação","texto":"1 frase prática com número (horas de sono, gramas, mg de cafeína e horário, ml)"}]}
+"dicas": 3 a 4 itens para HOJE, usando fadiga/equilíbrio, check-in, treino de hoje e alvos de alimentação (${JSON.stringify(dietTargets())}; peso ${S.profile?.peso || "?"} kg). Cafeína: ~3 mg/kg 45–60 min antes de treino forte; evitar após 14h se dormiu mal.
 "pontos" tem de 2 a 4 itens. O "resumo" deve ser simples, como: "Você está construindo base: treina mais horas que há 2 meses, mas a natação ainda está parada." Não repita a tabela de números; interprete.`, { modelTier:"quick" });
     S.profile = { ...S.profile, noteObj: r, note: [r.resumo, ...(r.pontos||[]).map(p => p.texto), r.foco].filter(Boolean).join(" "), noteAt: new Date().toISOString() };
     save("profile", S.profile);
@@ -1088,6 +1090,29 @@ function doneBlockHTML(ref, date){
     ${acts.length > (a ? 1 : 0) ? `<div class="note" style="margin-top:12px">${a ? "Não foi esse? Escolha o treino certo do dia:" : "Algum destes foi este treino?"}</div>
       <div class="chips" style="margin:6px 0 0">${acts.filter(x => x.id !== id).map(x => `<button type="button" class="chip" data-link="${esc(x.id)}" data-ref="${ref}">${esc(lbl(x))}</button>`).join("")}${a ? `<button type="button" class="chip" data-link="" data-ref="${ref}">Nenhum: não fiz este</button>` : ""}</div>` : ""}
   </div>`;
+}
+/* ---------- dicas do coach: fadiga, sono, alimentação, cafeína ---------- */
+const HARD_RE = /Z4|Z5|limiar|intervalad|tiros|teste|VO2|forte/i;
+function coachTips(now){
+  const kg = Number(S.profile?.peso) || null, ck = (S.checkins || []).at(-1), todayCk = ck?.data === dayKey(new Date()) ? ck : null;
+  const today = todaySessions().filter(x => x.sport !== "rest"), hard = today.some(x => HARD_RE.test(`${x.zona} ${x.titulo}`)), mins = today.reduce((t, x) => t + (Number(x.min) || 0), 0);
+  const st = now ? formState(now.tsb).t : null, tired = st === "Sobrecarga" || (todayCk && ((todayCk.cans >= 4) || (todayCk.sono && todayCk.sono < 6) || (todayCk.bb && todayCk.bb < 40)));
+  const tips = [];
+  tips.push({ tema: "Fadiga", texto: tired ? "Você está com fadiga alta. Hoje vale trocar o treino forte por Z1/Z2 leve ou descanso." : st === "Construindo" ? "Fadiga produtiva: o corpo está absorvendo a carga. Mantenha os dias leves bem leves." : st === "Descansado" ? "Você está descansado: bom dia para o treino de qualidade." : "Carga e recuperação equilibradas. Siga o plano." });
+  const sonoAlvo = tired || st === "Construindo" ? "8 a 9 h" : "7 a 9 h";
+  tips.push({ tema: "Sono", texto: todayCk?.sono ? `Você dormiu ${fmtNum(todayCk.sono,1)} h. ${todayCk.sono < 7 ? `Hoje mire em ${sonoAlvo}: vá para a cama mais cedo e evite telas na última hora.` : `Ótimo. Mantenha ${sonoAlvo} por noite.`}` : `Mire em ${sonoAlvo} por noite. Preencha o check-in de sono para dicas mais certeiras.` });
+  const dt = dietTargets();
+  if (dt) tips.push({ tema: "Alimentação", texto: `Hoje: ~${dt.carbo_g} g de carboidrato e ~${dt.proteina_g} g de proteína${mins >= 75 ? `; no treino longo, 30–60 g de carbo por hora` : ""}. Proteína distribuída em 4 refeições.` });
+  const poorSleep = todayCk && ((todayCk.sono && todayCk.sono < 7) || (todayCk.score && todayCk.score < 60));
+  tips.push({ tema: "Cafeína", texto: poorSleep ? "Dormiu pouco: evite cafeína depois das 14h para não atrapalhar a próxima noite." : hard && kg ? `Treino forte hoje: ~${Math.round(kg * 3)} mg de cafeína (≈ ${Math.max(1, Math.round(kg * 3 / 90))} xícara${Math.round(kg * 3 / 90) > 1 ? "s" : ""} de café) 45–60 min antes ajuda o desempenho.` : "Até 2–3 xícaras de café por dia e nada depois das 16h." });
+  if (mins >= 60) tips.push({ tema: "Hidratação", texto: `${mins} min de treino hoje: leve 500–750 ml de água ou isotônico por hora.` });
+  return tips;
+}
+function tipsHTML(now){
+  const o = S.profile?.noteObj, fresh = S.profile?.noteAt && (Date.now() - new Date(S.profile.noteAt)) < 24*3600e3;
+  const tips = fresh && Array.isArray(o?.dicas) && o.dicas.length ? o.dicas : coachTips(now);
+  return `<section class="panel tips-coach"><div class="ph"><h2>Dicas do coach</h2><span class="note">para hoje</span></div>
+    <ul class="ctips">${tips.slice(0, 5).map(t => `<li><b>${esc(t.tema || "")}</b><span>${esc(t.texto || "")}</span></li>`).join("")}</ul></section>`;
 }
 /** Liga (ou desliga) uma atividade a uma sessão do plano. */
 function linkActivity(ref, actId){
@@ -1813,10 +1838,7 @@ function viewPainel(){
         <div class="kv"><div><span>Fadiga (7 dias)</span><b>${fmtNum(now.atl,1)}</b></div><div><span>Equilíbrio</span><b>${now.tsb > 0 ? "+" : ""}${fmtNum(now.tsb,1)}</b></div><div><span>Carga da semana</span><b>${fmtNum(series.slice(-7).reduce((s,x)=>s+x.load,0),1)} pts</b></div></div>`
       : `<p class="muted" style="margin:0">${dq.msg}</p><div class="row"><button class="btn" data-act="showlog">Registrar treino</button><button class="btn ghost" data-act="sync">Atualizar Strava</button></div>`}
     </section>
-    <section class="panel"><div class="ph"><h2>Forma e fadiga</h2>${series ? `<div class="legend"><span class="c-swim">Condicionamento (42 dias)</span><span class="c-run">Fadiga (7 dias)</span><span style="--c:var(--muted)">Carga do dia</span></div>` : ""}</div>
-      ${series ? `<div class="chartbox">${fitnessChart(series)}</div>` : `<div class="empty" style="padding:20px"><span class="muted">O gráfico só aparece com dados reais suficientes. ${dq.msg}</span></div>`}
-      ${howCalcHTML(dq)}
-    </section>
+    ${tipsHTML(now)}
   </div>
 
   ${ckDone ? `${weighCard}` : ""}
@@ -1831,6 +1853,10 @@ function viewPainel(){
       ${rows.map(r => `<tr><td>${r.c ? `<i class="dot" style="--c:var(--${r.c})"></i>` : ""}${r.k}</td><td class="num muted">${r.a ? r.f(r.a) : "—"}</td><td class="num">${r.b ? r.f(r.b) : "—"}</td><td class="num">${deltaHTML(r)}</td></tr>`).join("")}</tbody></table>`
       : `<p class="muted" style="margin:0">Sem histórico suficiente para comparar.</p>`}</div>
   </section>
+    <section class="panel" style="margin-top:16px"><div class="ph"><h2>Forma e fadiga</h2>${series ? `<div class="legend"><span class="c-swim">Condicionamento (42 dias)</span><span class="c-run">Fadiga (7 dias)</span><span style="--c:var(--muted)">Carga do dia</span></div>` : ""}</div>
+      ${series ? `<div class="chartbox">${fitnessChart(series)}</div>` : `<div class="empty" style="padding:20px"><span class="muted">O gráfico só aparece com dados reais suficientes. ${dq.msg}</span></div>`}
+      ${howCalcHTML(dq)}
+    </section>
   <section class="panel coachread" style="margin-top:16px"><div class="ph"><h2>Leitura do coach</h2><button class="btn ghost sm" data-act="note" ${S.busy.note ? "disabled" : ""}>${S.busy.note ? '<span class="spin"></span> Analisando' : "Atualizar"}</button></div>
     ${coachReadHTML(p, rows)}
     ${activeComplaints().length ? `<div class="cr-block"><div class="eyebrow">Corpo</div>${complaintsHTML(false)}</div>` : ""}

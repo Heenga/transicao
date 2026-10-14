@@ -426,3 +426,7 @@ body.sheet-open{overflow:hidden}
 .quickgym{margin-top:16px;padding:12px;border:1px dashed var(--line);border-radius:12px}
 .doneblk{margin-top:16px;padding:12px;border-radius:12px;background:color-mix(in srgb,var(--ok) 8%,transparent);border:1px solid color-mix(in srgb,var(--ok) 30%,var(--line))}
 .doneblk textarea{width:100%}
+.ctips{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.ctips li{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;background:var(--soft,color-mix(in srgb,var(--ink) 4%,transparent));border-left:3px solid var(--swim)}
+.ctips b{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.ctips span{font-size:14px;line-height:1.45}
