@@ -92,7 +92,7 @@
     const tier = opts.modelTier || "default";
     for (let round = 0; round < 8; round++) {
       if (opts.signal?.aborted) throw { code: "cancelled" };
-      const res = await api("/api/ai", { method: "POST", body: JSON.stringify({ messages, tools, tier, maxTokens: opts.maxTokens }), signal: opts.signal })
+      const res = await api("/api/ai", { method: "POST", body: JSON.stringify({ messages, tools, tier, maxTokens: opts.maxTokens, system: opts.system }), signal: opts.signal })
         .catch(e => { if (e?.name === "AbortError") throw { code: "cancelled" }; throw e; });
       const text = (res.content || []).filter(b => b.type === "text").map(b => b.text).join("");
       if (res.stop_reason === "tool_use" && tools.length) {

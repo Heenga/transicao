@@ -34,9 +34,10 @@ export async function POST(req: Request) {
     const res = await client.messages.create({
       model, max_tokens: maxTokens, messages,
       ...(tools ? { tools } : {}),
-      ...(body.system ? { system: String(body.system).slice(0, 20000) } : {}),
+      // instruções fixas (método, regras, formato) ficam em cache: chamadas seguintes pagam ~10% por esses tokens
+      ...(body.system ? { system: [{ type: "text", text: String(body.system).slice(0, 40000), cache_control: { type: "ephemeral" } }] } : {}),
     } as any);
-    return json({ content: res.content, stop_reason: res.stop_reason, model: res.model });
+    return json({ content: res.content, stop_reason: res.stop_reason, model: res.model, usage: res.usage });
   } catch (e: any) {
     const status = e?.status || 500;
     if (status === 429) return fail("rate_limited", "A IA está sobrecarregada. Tente em alguns segundos.", 429);

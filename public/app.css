@@ -2,17 +2,17 @@
 /* Layout: régua de prova — cabeçalho com abas T1/T2, três faixas por modalidade, depois plano + coach lado a lado */
 :root{
   --bg:#F3EFE4; --surface:#FFFCF5; --ink:#14203D; --muted:#5C6478; --line:#E2DCCD; --soft:#EBE5D6;
-  --swim:#1C7DA6; --bike:#7B4FB8; --run:#D04F26; --ok:#2E8a57; --warn:#B7791F; --bad:#C0392B;
+  --swim:#1C7DA6; --bike:#7B4FB8; --brick:#0F8A7E; --run:#D04F26; --ok:#2E8a57; --warn:#B7791F; --bad:#C0392B;
   --display:"Archivo","Helvetica Neue",Arial,sans-serif;
   --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0B1120; --surface:#121A2D; --ink:#EFE9DA; --muted:#8F97AA; --line:#222C44; --soft:#192238;
-  --swim:#4FB2DA; --bike:#B08BEA; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}}
+  --swim:#4FB2DA; --bike:#B08BEA; --brick:#46C2B5; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0B1120; --surface:#121A2D; --ink:#EFE9DA; --muted:#8F97AA; --line:#222C44; --soft:#192238;
-  --swim:#4FB2DA; --bike:#B08BEA; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}
+  --swim:#4FB2DA; --bike:#B08BEA; --brick:#46C2B5; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);-webkit-font-smoothing:antialiased}
 .wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -378,7 +378,7 @@ table.items{font-size:13px;margin-top:6px}
 .t-piorando{color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,transparent)}
 .t-estável{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .c-strength{--c:var(--ink)}
-.c-swim{--c:var(--swim)} .c-bike{--c:var(--bike)} .c-run{--c:var(--run)} .c-brick{--c:var(--run)} .c-other{--c:var(--muted)} .c-strength{--c:var(--muted)} .c-rest{--c:var(--line)}
+.c-swim{--c:var(--swim)} .c-bike{--c:var(--bike)} .c-run{--c:var(--run)} .c-brick{--c:var(--brick)} .c-other{--c:var(--muted)} .c-strength{--c:var(--muted)} .c-rest{--c:var(--line)}
 .appfoot{padding-block:28px calc(28px + env(safe-area-inset-bottom,0px));text-align:center;font:400 11px/1.4 var(--mono);color:var(--muted);opacity:.8}
 .hm{display:flex;align-items:center;gap:6px}
 .hm input{flex:1;min-width:0}

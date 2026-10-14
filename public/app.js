@@ -298,11 +298,20 @@ function sportStats(sport, days = 28){
   const longest = xs.reduce((m,a)=>a.dist>m.dist?a:m,{dist:0,mov:0});
   return { n: xs.length, d, t, perWeek: d/(days/7), longest };
 }
+/* Contexto enxuto para a IA: só o que muda a decisão, em texto curto (menos tokens, mesma informação). */
+const DIAS_NOME = ["seg","ter","qua","qui","sex","sáb","dom"];
+function profileForAI(){
+  const p = S.profile || {};
+  const out = { apelido: p.nick, nivel: p.level, peso_kg: p.peso, altura_cm: p.altura, horas_semana: p.hours, piscina: p.pool,
+    dias_disponiveis: Array.isArray(p.days) ? p.days.map(d => DIAS_NOME[d]).join(",") : undefined,
+    ponto_fraco: p.fraco, rolo: p.rolo, corrida_onde: p.corre, por_dia: p.porDia, fds_tudo: p.fds };
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v != null && v !== ""));
+}
+const complaintsForAI = () => activeComplaints().map(c => ({ local: c.local, dor: c.intensidade, quando: c.quando, piora_com: c.agrava, desde: c.data }));
 function summaryForAI(){
-  const w = weeklyBuckets(12).map(x => ({ semana: dayKey(x.start),
-    natacao_m: Math.round(x.swim.d), natacao_min: Math.round(x.swim.t/60),
-    bike_km: +(x.bike.d/1000).toFixed(1), bike_min: Math.round(x.bike.t/60),
-    corrida_km: +(x.run.d/1000).toFixed(1), corrida_min: Math.round(x.run.t/60) }));
+  // semanas sem treino viram "—"; números em texto curto
+  const w = weeklyBuckets(8).map(x => { const parts = [x.swim.d && `nat ${Math.round(x.swim.d)}m/${Math.round(x.swim.t/60)}min`, x.bike.d && `bike ${fmtNum(x.bike.d/1000,1)}km/${Math.round(x.bike.t/60)}min`, x.run.d && `corr ${fmtNum(x.run.d/1000,1)}km/${Math.round(x.run.t/60)}min`].filter(Boolean);
+    return `${dayKey(x.start)}: ${parts.join(", ") || "—"}`; });
   const s = sport => { const k = sportStats(sport, 28); return { sessoes_28d: k.n, volume_semana_medio: sport==="swim" ? `${Math.round(k.perWeek)} m` : `${(k.perWeek/1000).toFixed(1)} km`,
     ritmo: sport==="swim" ? paceSwim(k.d,k.t) : sport==="run" ? paceRun(k.d,k.t) : speedBike(k.d,k.t), mais_longo: fmtDist(sport, k.longest.dist) }; };
   return { semanas: w, ultimos_28_dias: { natacao: s("swim"), bike: s("bike"), corrida: s("run") }, total_atividades: S.activities.length };
@@ -550,6 +559,46 @@ TESTES: se não houver dados confiáveis, na semana 1 marque testes: CSS (nataç
 POLIMENTO: 10-14 dias antes da prova (7 para sprint), volume -40 a -60%, frequência quase igual, mantenha alguns estímulos curtos de intensidade.
 RECUPERAÇÃO: sono <6 h, sleep score <60, Body Battery <40, HRV abaixo do habitual ou cansaço ≥4 → transforme o treino forte do dia em Z1-Z2 ou descanso.`;
 
+/* Instruções fixas do chat do coach (system em cache). Os dados do atleta vão na mensagem. */
+const CHAT_SYS = () => `Você é o coach de triatlo dentro do app Transição. Responda em português do Brasil, curto e direto (até 6 frases, sem emoji), com números quando ajudar.
+A cada mensagem do atleta chegam "Dados de hoje" entre colchetes: use-os, não invente números.
+MOTIVAÇÃO: quando fizer sentido, reconheça as evoluções comprovadas com energia e números (sem exagerar).
+RECUPERAÇÃO: sono < 6 h, sleep score < 60, HRV caindo, Body Battery < 40 ou cansaço ≥ 4 → sugira reduzir a intensidade do dia. Se o atleta mandar esses números (texto ou print do relógio), chame registrar_recuperacao e comente em 1–2 frases o impacto no treino de hoje.
+TREINOS: treino feito sem relógio → registrar_treino (pergunte o esforço 1–10 se faltar). Esforço de treino já sincronizado → avaliar_esforco.
+PESO: se informar o peso, registrar_peso. Comente de forma neutra e ligada ao desempenho; perda acima de ~1% do peso por semana é rápida demais para quem treina: recomende comer mais e procurar nutricionista.
+ALIMENTAÇÃO: quando contar o que come, estime carboidrato, proteína e gordura, compare com os alvos (proteína ~1,6 g/kg; carboidrato 5–8 g/kg conforme o volume do dia), dê 2–3 ajustes práticos com alimentos brasileiros comuns (arroz, feijão, ovos, frango, iogurte, banana, tapioca, pão) e o que comer antes/durante/depois do treino. Chame registrar_alimentacao. Foque em abastecer o treino; nada de dietas restritivas. Objetivo de perda de peso → recomende nutricionista.
+PLANO: use as ferramentas para ver atividades e semanas do plano. Só altere o plano se o atleta pedir ou concordar. Siga o método abaixo em toda recomendação.
+DOR OU DESCONFORTO: não diagnostique. Faça 2–3 perguntas objetivas, uma por vez (onde e qual lado, intensidade 0–10, quando dói, há quanto tempo, se piorou após algum treino). Depois chame registrar_queixa, explique o ajuste em 2–3 frases, reduza a carga na modalidade que agrava (ajustar_dia_do_plano) e monte força de reabilitação progressiva com adicionar_treino_forca. Dor até 3/10 que não piora no dia seguinte é aceitável. Dor aguda, inchaço, estalo, dor em repouso ou piora por mais de 1 semana → fisioterapeuta ou médico do esporte. Em conversas seguintes, pergunte como a queixa evoluiu.
+ACADEMIA sem dor: força específica para triatlo com adicionar_treino_forca.
+
+${METODO}`;
+
+/* Instruções fixas do plano: vão no "system" e ficam em cache na Anthropic (só a parte variável é cobrada inteira). */
+const PLAN_SYS = `Você é um treinador de triatlo experiente acompanhando um atleta amador dia a dia, em português do Brasil.
+Você planeja UMA semana por vez (segunda a domingo). Depois de cada treino feito ou perdido, o app te chama de novo para reajustar os dias restantes.
+
+COMO AVALIAR E AJUSTAR:
+- Compare planejado × feito: cumpriu? fez mais ou menos? esforço (1-10) acima do esperado para a zona? FC alta? dor?
+- Treino perdido não se "paga" acumulando: redistribua com bom senso e mantenha o equilíbrio da semana (modalidades, dias fortes × fáceis).
+- Esforço alto em treino fácil, dor, sono ruim ou cansaço → alivie. Tudo cumprido e com folga → progrida um pouco (respeitando +10%/semana).
+- Nunca 2 dias fortes seguidos; nada forte depois do longão; corrida forte nunca em dias seguidos.
+- Sessões com "movido_pelo_atleta": o atleta escolheu aquele dia. Mantenha a sessão nesse dia com "movido": true (pode ajustar volume/intensidade); só mude o dia se for claramente inseguro, e diga por quê na avaliação.
+
+REGRAS:
+- Respeite os dias disponíveis e as horas semanais. Dia indisponível = descanso (sessoes: []).
+- Use rolo/esteira se o atleta tiver. Dê um pouco mais de frequência ao ponto fraco.
+- Natação em metros com séries (ex: "10x100 no ritmo de prova, 15 s"). Bike e corrida em minutos com zona e esforço.
+- TODA corrida (e a parte de corrida do brick) tem "pace" alvo em min/km, a partir dos ritmos reais do histórico e da zona. Nas etapas de corrida, cite o pace de cada parte (ex.: "6x3 min a 5:10/km, 1 min trote").
+- Sem histórico ou sem testes: comece conservador e marque testes.
+- Atleta amador: "titulo" sempre diz a modalidade e o que é, sem sigla solta (ex.: "Natação: teste de ritmo (400 m e 200 m)", não "Teste de CSS"). Em testes, as etapas explicam como fazer e o que anotar. Sigla técnica (CSS, FTP, Z2) só com explicação curta entre parênteses na primeira vez.
+- Queixas: reduza impacto/volume na modalidade que agrava e inclua reabilitação progressiva na força (ex.: Aquiles → excêntrico/isométrico de panturrilha; dor ≤3/10 sem piora no dia seguinte é aceitável). Nunca diagnostique.
+
+${METODO}
+
+FORMATO: responda SÓ com JSON:
+{"avaliacao":"2-3 frases ao atleta: como foram os últimos treinos (com números) e o que você ajustou. Sem treinos ainda: diga como vai começar.","resumo":"1 frase sobre a direção da semana","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semana":{"foco":"curto","carga":"leve|moderada|alta|recuperação"},"dias":[{"data":"YYYY-MM-DD","sessoes":[{"sport":"swim|bike|run|brick|strength","titulo":"curto","movido":false,"min":60,"dist":"2.000 m | 30 km | vazio","pace":"6:10–6:30/km (só corrida/brick)","bike_min":0,"run_min":0,"zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"até 70 caracteres"}],"dica":"1 frase prática","exercicios":[{"nome":"","series":3,"reps":"15","carga":"","obs":""}]}]}]}
+Descanso = sessoes: []. Brick: "min" é o total e "bike_min" + "run_min" a divisão. "exercicios" só em strength (4-7). "etapas" em toda sessão que não for força. Omita campos vazios.`;
+
 /* ---------- plano por IA: a semana é gerada no domingo à noite e reajustada a cada treino feito ou perdido ---------- */
 const WEEK_GEN_HOUR = 19; // domingo, a partir das 19h, gera a semana seguinte
 const WEEK_GEN_TEXT = "Os treinos da semana são gerados no domingo, a partir das 19h, e reajustados a cada treino que você faz (ou perde).";
@@ -620,61 +669,22 @@ async function generatePlan(opts = {}){
   const anteriores = Object.entries(map).filter(([k]) => k >= dayKey(from)).map(([data, ss]) => ({ data, sessoes: ss.map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona, ...(x.movido ? { movido_pelo_atleta: true } : {}) })) }));
   const semanaAtual = (() => { const m = mondayOf(hoje), xs = S.activities.filter(a => new Date(a.date) >= m && a.sport !== "other"), by = sp => Math.round(xs.filter(a => a.sport === sp).reduce((t,a)=>t+a.mov,0)/60);
     return { desde: dayKey(m), treinos: xs.length, min_natacao: by("swim"), min_bike: by("bike"), min_corrida: by("run") + by("brick"), min_forca: by("strength") }; })();
-  const prompt = `Você é um treinador de triatlo experiente acompanhando o atleta dia a dia, em português do Brasil.
-Você planeja UMA semana por vez (segunda a domingo). ${novaSemana ? "Agora é domingo à noite: monte a semana que começa amanhã inteira, olhando como foi a semana que terminou." : "A semana já está em andamento: replaneje só os dias que faltam, a partir do que foi feito até agora."} Depois de cada treino feito ou perdido o app te chama de novo para reajustar os dias restantes da semana.
-
-CALENDÁRIO:
-- Hoje é ${hoje.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}.${treinouHoje ? " O atleta já treinou hoje; comece amanhã." : ""}
-- Planeje exatamente estes dias: ${dias.map(fmtD).join(", ")}.
-- A prova é em ${new Date(S.race.date+"T12:00:00").toLocaleDateString("pt-BR")} (faltam ${daysToRace()} dias).
-
-PROVA ALVO:
-${JSON.stringify(raceForAI())}
-
-ATLETA:
-${JSON.stringify(S.profile)}
-
-PLANEJADO × FEITO NOS ÚLTIMOS 7 DIAS (avalie isto primeiro):
-${JSON.stringify(planVsDone(7))}
-
-SEMANA ATUAL ATÉ AGORA: ${JSON.stringify(semanaAtual)} · horas disponíveis por semana: ${S.profile?.hours || "?"}
-O QUE ESTAVA PREVISTO PARA OS PRÓXIMOS DIAS (mantenha a coerência, mas mude o que for preciso): ${JSON.stringify(anteriores)}
-
-HISTÓRICO (dados reais do relógio/Strava):
-${JSON.stringify(summaryForAI())}
-${S.zones ? "ZONAS: " + S.zones : ""}
-
-FASE ATUAL (calculada pela data da prova): ${JSON.stringify(phaseFor(daysToRace()))}
-NÍVEL DO ATLETA NO MÉTODO: ${athleteTier()}
-RECUPERAÇÃO RECENTE: ${JSON.stringify((S.checkins||[]).slice(-7))}
-CONDICIONAMENTO: ${JSON.stringify(fitnessForAI())}
-
-${METODO}
-
-COMO AVALIAR E AJUSTAR:
-- Compare planejado × feito: cumpriu? fez mais ou menos? esforço (1-10) acima do esperado para a zona? FC alta? dor?
-- Treino perdido não se "paga" acumulando: redistribua com bom senso e mantenha o equilíbrio da semana (modalidades, dias fortes x fáceis).
-- Esforço alto em treino que era fácil, dor, sono ruim ou cansaço → alivie os próximos dias. Tudo cumprido e com folga → pode progredir um pouco (respeitando +10%/semana).
-- Nunca 2 dias fortes seguidos; nada forte depois do longão; corrida forte não em dias seguidos.
-- Sessões com "movido_pelo_atleta": o próprio atleta escolheu aquele dia. Mantenha a sessão nesse dia (pode ajustar volume/intensidade) e mantenha "movido": true nela; só mude o dia se for claramente inseguro, e diga por quê na avaliação.
-
-REGRAS:
-- Respeite os dias disponíveis e as horas semanais. Dia indisponível = descanso (sessoes: []).
-- PREFERÊNCIA DO ATLETA POR DIA: ${({ "1":"no máximo 1 modalidade por dia (nada de 2 sessões no mesmo dia)", "2":"no máximo 2 sessões por dia", "1+gym":"1 modalidade por dia; força/academia pode ser no mesmo dia", "todas":"pode combinar várias sessões no dia quando o plano pedir" })[S.profile?.porDia] || "sem preferência informada"}.
-- FIM DE SEMANA E FERIADOS: ${S.profile?.fds === "Sim" ? "pode treinar todas as modalidades no mesmo dia (use para longão, brick e treinos combinados)" : "segue a mesma regra dos outros dias"}.
-- Use rolo/esteira se o atleta tiver: rolo ${S.profile?.rolo || "?"}, corrida ${S.profile?.corre || "?"}. Ponto fraco: ${S.profile?.fraco || "?"} (dê um pouco mais de frequência a ele).
-- Natação em metros com séries (ex: "10x100 no CSS, 15 s"). Bike e corrida em minutos com zona e RPE.
-- TODA corrida (e a parte de corrida do brick) tem "pace" alvo em min/km, calculado a partir dos ritmos reais do histórico e da zona (ex.: Z2 fácil um pouco mais lento que o ritmo médio atual dele). Nas etapas de corrida, cite o pace de cada parte (ex.: "6x3 min a 5:10/km, 1 min trote").
-- Se o histórico estiver vazio ou sem testes, comece conservador e marque testes nestes primeiros dias.
-- O atleta é amador: "titulo" sempre diz a modalidade e o que é, sem sigla solta (ex.: "Natação: teste de ritmo (400 m e 200 m)", não "Teste de CSS"). Em testes, as etapas explicam passo a passo como fazer e o que anotar (tempo, FC, pace). Sigla técnica (CSS, FTP, Z2, RPE) só com explicação curta entre parênteses na primeira vez.
-- QUEIXAS ATIVAS: ${JSON.stringify(activeComplaints())}. Para cada queixa, adapte: reduza impacto/volume na modalidade que agrava, inclua exercícios de reabilitação progressiva na força (ex.: tendão de Aquiles → excêntrico/isométrico de panturrilha com joelho estendido e flexionado; dor ≤3/10 durante e sem piora no dia seguinte é aceitável). Nunca diagnostique.
-
-Responda SÓ com JSON neste formato:
-{"avaliacao":"2 a 3 frases, falando com o atleta: como foram os últimos treinos (com números) e o que você ajustou por causa disso. Se ainda não houver treinos, diga como vai começar.","resumo":"1 frase sobre a direção dos próximos dias","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semana":{"foco":"texto curto sobre esta semana","carga":"leve|moderada|alta|recuperação"},"dias":[{"data":"YYYY-MM-DD","sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","movido":false,"min":60,"dist":"2.000 m ou 30 km ou vazio","pace":"6:10–6:30/km (só corrida e brick; vazio nas outras)","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}
-"dias" tem exatamente os ${nDias} dias pedidos, em ordem. Descanso = sessoes: [].
-"exercicios" só nas sessões strength (4 a 7 exercícios). "etapas" em toda sessão que não for força: cada etapa com fase, minutos e descrição curta (até 70 caracteres). Não use "detalhe" longo.`;
+  const prompt = `${novaSemana ? "TAREFA: domingo à noite, monte a semana que começa amanhã inteira, olhando como foi a semana que terminou." : "TAREFA: semana em andamento, replaneje só os dias que faltam a partir do que foi feito até agora."}
+Hoje: ${hoje.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}.${treinouHoje ? " Já treinou hoje; comece amanhã." : ""}
+Dias a planejar (exatamente ${nDias}, em ordem): ${dias.map(fmtD).join(", ")}.
+Prova: ${JSON.stringify(raceForAI())} · faltam ${daysToRace()} dias · fase ${JSON.stringify(phaseFor(daysToRace()))} · nível no método ${athleteTier()}
+Atleta: ${JSON.stringify(profileForAI())}
+Preferência por dia: ${({ "1":"no máximo 1 modalidade por dia", "2":"no máximo 2 sessões por dia", "1+gym":"1 modalidade por dia; força pode ser no mesmo dia", "todas":"pode combinar várias sessões no dia" })[S.profile?.porDia] || "não informada"} · fim de semana/feriado: ${S.profile?.fds === "Sim" ? "pode juntar modalidades (longão, brick)" : "mesma regra"}
+Queixas ativas: ${JSON.stringify(complaintsForAI())}
+Planejado × feito (7 dias): ${JSON.stringify(planVsDone(7))}
+Semana até agora: ${JSON.stringify(semanaAtual)}
+Previsto antes para estes dias: ${JSON.stringify(anteriores)}
+Histórico: ${JSON.stringify(summaryForAI())}
+${S.zones ? "Zonas: " + S.zones : ""}
+Recuperação (7 dias): ${JSON.stringify((S.checkins||[]).slice(-7))}
+Condicionamento: ${JSON.stringify(fitnessForAI())}`;
   try {
-    const r = await sample.json(prompt, { modelTier: "complex" });
+    const r = await sample.json(prompt, { modelTier: "complex", system: PLAN_SYS });
     if (!r || !Array.isArray(r.dias)) throw { code:"invalid_json" };
     const fromK = dayKey(from), toK = dayKey(to);
     Object.keys(map).forEach(k => { if (k >= fromK) delete map[k]; });
@@ -748,7 +758,7 @@ async function coachNote(force){
   try {
     const r = await sample.json(`Você é o treinador de triatlo de ${S.profile.nick || "um atleta"}. Hoje é ${new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}.
 Prova: ${JSON.stringify(raceForAI())}
-Perfil: ${JSON.stringify(S.profile)}
+Perfil: ${JSON.stringify(profileForAI())}
 Dados: ${JSON.stringify(summaryForAI())}
 Condicionamento (modelo de carga): ${JSON.stringify(fitnessForAI())}
 Antes (8 semanas atrás) vs agora (últimas 4 semanas): ${JSON.stringify(compareRows().map(r => ({ indicador: r.k, antes: r.a ? r.f(r.a) : null, agora: r.b ? r.f(r.b) : null })))}
@@ -882,27 +892,17 @@ async function sendChat(text){
   const img = S.pendingImg; S.pendingImg = null;
   S.chat.push({ r:"u", t: text + (img ? "\n[print anexado]" : "") }); S.chat.push({ r:"a", t:"" });
   busy("chat", true); render(); scrollChat();
-  const ctx = `[Contexto — você é o coach de triatlo dentro do app Transição. Responda em português, curto e direto (até 6 frases, sem emoji), com números quando ajudar. Hoje: ${new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}.
-Prova do grupo: ${JSON.stringify(raceForAI())}
-Perfil: ${JSON.stringify(S.profile || {})}
-Resumo dos dados: ${JSON.stringify(summaryForAI())}
-Plano: ${S.plan ? `fase ${S.plan.fase}, início ${S.plan.start}, aderência ${adherence() ?? "—"}%. Hoje: ${JSON.stringify(todaySessions())}` : "nenhum plano gerado ainda"}
-Queixas registradas: ${JSON.stringify(activeComplaints())}
+  const ctx = `[Dados de hoje (${new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})})
+Prova: ${JSON.stringify(raceForAI())} · fase ${JSON.stringify(phaseFor(daysToRace()))} · nível ${athleteTier()}
+Atleta: ${JSON.stringify(profileForAI())}
+Histórico: ${JSON.stringify(summaryForAI())}
+Plano: ${S.plan ? `fase ${S.plan.fase}, aderência ${adherence() ?? "—"}%. Hoje: ${JSON.stringify(todaySessions().map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona })))}` : "nenhum plano gerado ainda"}
+Queixas: ${JSON.stringify(complaintsForAI())}
 Condicionamento: ${JSON.stringify(fitnessForAI())}
-Recuperação (check-ins de sono/HRV/Body Battery/cansaço, últimos 7): ${JSON.stringify((S.checkins||[]).slice(-7))}
-Evoluções comprovadas pelos dados: ${JSON.stringify(highlights().map(x => x.t + " — " + x.d))}. Quando fizer sentido na conversa, reconheça essas conquistas com energia e números, para motivar (sem exagerar nem inventar).
-Se o sono estiver abaixo de 6 h, sleep score abaixo de 60, HRV caindo, Body Battery abaixo de 40 ou cansaço ≥4, sugira reduzir a intensidade do dia.
-Quando o atleta mandar sleep score, Body Battery, HRV, sono etc. (por texto ou print do relógio), chame registrar_recuperacao e comente em 1–2 frases o impacto no treino de hoje.
-Quando contar um treino feito sem relógio, chame registrar_treino (pergunte o esforço de 1 a 10 se faltar). Se disser o esforço de um treino já sincronizado, use avaliar_esforco.
-PESO: histórico semanal ${JSON.stringify((S.weights||[]).slice(-8))}. Se o atleta informar o peso, chame registrar_peso. Comente variações de forma neutra e ligada ao desempenho; perda acima de ~1% do peso por semana é rápida demais para quem treina: recomende comer mais e procurar nutricionista.
-ALIMENTAÇÃO: peso ${S.profile?.peso || "?"} kg, altura ${S.profile?.altura || "?"} cm. Alvos de hoje: ${JSON.stringify(dietTargets())}. Registros recentes: ${JSON.stringify((S.diet||[]).slice(-3).map(d => ({ data: d.data, texto: d.texto.slice(0, 300), est: d.est })))}.
-Quando o atleta contar o que come, estime carboidrato, proteína e gordura, compare com os alvos (proteína ~1,6 g/kg; carboidrato 5–8 g/kg conforme o volume do dia), dê 2–3 ajustes práticos com alimentos brasileiros comuns (ex.: arroz, feijão, ovos, frango, iogurte, banana, tapioca, pão) e o que comer antes/durante/depois do treino. Chame registrar_alimentacao. Foque em abastecer o treino; não recomende dietas restritivas nem cortes grandes de calorias. Se houver objetivo de perda de peso, recomende acompanhamento com nutricionista.
-Fase atual: ${JSON.stringify(phaseFor(daysToRace()))}; nível no método: ${athleteTier()}.
-Siga este método em toda recomendação de treino e ao ajustar o plano:
-${METODO}
-Use as ferramentas para ver atividades e semanas do plano. Só altere o plano se o atleta pedir ou concordar.
-QUANDO O ATLETA RELATAR DOR OU DESCONFORTO: não diagnostique. Primeiro faça 2 ou 3 perguntas objetivas, uma mensagem por vez (onde exatamente e qual lado, intensidade 0–10, quando dói: início/durante/depois/manhã seguinte, há quanto tempo, se piorou após algum treino). Com as respostas, chame registrar_queixa, explique o ajuste em 2–3 frases, reduza a carga na modalidade que agrava (ajustar_dia_do_plano) e monte uma sessão de força de reabilitação progressiva com adicionar_treino_forca (séries, reps, carga, cadência). Regra prática: dor até 3/10 durante e que não piora no dia seguinte é aceitável. Se houver dor aguda/pontada, inchaço, estalo, dor em repouso ou piora por mais de 1 semana, recomende avaliação com fisioterapeuta ou médico do esporte antes de seguir. Em conversas seguintes, pergunte como a queixa evoluiu e atualize a intensidade.
-Para pedidos de academia sem dor, monte força específica para triatlo com adicionar_treino_forca.]`;
+Recuperação (7 dias): ${JSON.stringify((S.checkins||[]).slice(-7))}
+Evoluções comprovadas: ${JSON.stringify(highlights().map(x => x.t))}
+Peso semanal: ${JSON.stringify((S.weights||[]).slice(-8).map(w => [w.data, w.kg]))}
+Alimentação: alvos de hoje ${JSON.stringify(dietTargets())}; recentes ${JSON.stringify((S.diet||[]).slice(-3).map(d => ({ data: d.data, texto: d.texto.slice(0, 200), est: d.est })))}]`;
   const hist = S.chat.filter(m => m.r !== "sys").slice(0, -2).slice(-12);
   const msgs = [];
   for (const m of hist){ const role = m.r === "u" ? "user" : "assistant"; if (msgs.length && msgs[msgs.length-1].role === role) msgs[msgs.length-1].content += "\n" + m.t; else if (m.t) msgs.push({ role, content: m.t }); }
@@ -913,7 +913,7 @@ Para pedidos de academia sem dor, monte força específica para triatlo com adic
   const bubble = S.chat[S.chat.length-1];
   try {
     S.chatNotes = [];
-    const r = await sample(msgs, { cache:false, signal: chatCtl.signal, tools: chatTools, ...(img ? { images: [img] } : {}),
+    const r = await sample(msgs, { cache:false, system: CHAT_SYS(), signal: chatCtl.signal, tools: chatTools, ...(img ? { images: [img] } : {}),
       onText: ({ text }) => { bubble.t = text; const el = $("#msgs .msg.a:last-child"); if (el) el.textContent = text; scrollChat(); } });
     bubble.t = r.text;
     for (const n of new Set(S.chatNotes)) S.chat.push({ r:"sys", t: n + "." }); S.chatNotes = [];
@@ -1008,10 +1008,22 @@ async function swapAI(){
   } catch { flash(S.view, "Não consegui buscar mais opções agora.", true); }
   if (S.swap) S.swap.loading = false; render();
 }
+/** Minutos de bike e de corrida de uma sessão (brick = bike + corrida; usa bike_min/run_min ou as etapas). */
+function sportMinutes(s){
+  const m = Number(s.min) || 0;
+  if (s.sport !== "brick") return { [s.sport]: m };
+  let bike = Number(s.bike_min) || 0, run = Number(s.run_min) || 0;
+  if (!bike && !run){
+    for (const e of s.etapas || []){ const t = `${e.fase || ""} ${e.desc || ""}`.toLowerCase(); if (/corr|run|trote|pace|\/km/.test(t)) run += Number(e.min) || 0; else bike += Number(e.min) || 0; }
+    if (!bike && !run){ run = Math.round(m * 0.2); bike = m - run; }
+  }
+  return { bike, run };
+}
 /** Linha curta do treino: 45 min · 1.200 m · Z1 · recuperação, bem leve */
 function sessMeta(s){
   const z = String(s.zona || "").toUpperCase().match(/Z[1-5]/)?.[0];
-  return [s.min ? `${s.min} min` : "", s.dist ? String(s.dist) : "", s.pace ? `pace ${String(s.pace).replace(/^pace\s*/i, "")}` : "", z ? `${z} · ${ZONA_TXT[z]}` : (s.zona || "")].filter(Boolean).join(" · ");
+  const br = s.sport === "brick" ? sportMinutes(s) : null;
+  return [s.min ? `${s.min} min` : "", br ? `bike ${br.bike} + corrida ${br.run} min` : "", s.dist ? String(s.dist) : "", s.pace ? `pace ${String(s.pace).replace(/^pace\s*/i, "")}` : "", z ? `${z} · ${ZONA_TXT[z]}` : (s.zona || "")].filter(Boolean).join(" · ");
 }
 /** Card compacto; o passo a passo abre no painel de detalhes ao tocar. */
 function sessHTML(s, date){
@@ -1679,7 +1691,7 @@ function calendarHTML(){
       return `<button class="cday${out ? " out" : ""}${past ? " past" : ""}${k === todayK ? " today" : ""}${k === sel ? " sel" : ""}${k === raceK ? " race" : ""}${inPlan ? " inplan" : ""}" data-cald="${k}" aria-label="${d.toLocaleDateString("pt-BR")}">
         <span class="num">${d.getDate()}</span>${mark}
         ${k === raceK ? `<span class="flag">PROVA</span>` : ""}
-        <span class="dots">${done.map(a => `<i class="dn" style="background:var(--${["swim","bike","run"].includes(a.sport) ? a.sport : "ink"})"></i>`).join("")}${!past ? plan.map(p => `<i class="pl" style="border-color:var(--${["swim","bike","run"].includes(p.sport) ? p.sport : p.sport === "brick" ? "run" : "ink"})"></i>`).join("") : ""}</span>
+        <span class="dots">${done.map(a => `<i class="dn" style="background:var(--${["swim","bike","run","brick"].includes(a.sport) ? a.sport : "ink"})"></i>`).join("")}${!past ? plan.map(p => `<i class="pl" style="border-color:var(--${["swim","bike","run"].includes(p.sport) ? p.sport : p.sport === "brick" ? "brick" : "ink"})"></i>`).join("") : ""}</span>
       </button>`; }).join("")}</div>
     <div class="legend" style="margin-top:10px"><span style="--c:var(--ok)">✓ treino feito</span><span style="--c:var(--bad)">✕ planejado e não feito</span><span style="--c:var(--ink)">● feito</span><span style="--c:var(--muted)">○ planejado</span><span style="--c:var(--run)">Natação / Bike / Corrida pelas cores</span></div>
     <div class="calday">
@@ -1718,13 +1730,13 @@ function planSectionHTML(){
   const curIdx = Math.floor((mondayOf(new Date()) - new Date(S.plan.start + "T00:00:00")) / (7*864e5));
   const days = Array.from({length:7}, (_, i) => (w.dias||[]).find(d => d.dia === i) || { dia:i, sessoes:[] });
   const todayKey = dayKey(new Date());
-  const mins = (w.dias||[]).flatMap(d => d.sessoes||[]).reduce((m, s) => { if (s.sport && s.sport !== "rest") m[s.sport] = (m[s.sport]||0) + (Number(s.min)||0); return m; }, {});
+  const mins = (w.dias||[]).flatMap(d => d.sessoes||[]).reduce((m, s) => { if (s.sport && s.sport !== "rest") for (const [k, v] of Object.entries(sportMinutes(s))) m[k] = (m[k]||0) + v; return m; }, {});
   const total = Object.values(mins).reduce((a,b)=>a+b,0);
   const doneBy = {}; S.activities.forEach(a => { (doneBy[dayKey(a.date)] ||= []).push(a); });
   return `<section class="panel"><div class="ph"><h2>${esc(w.foco || "Semana " + (S.week+1))}</h2><button class="btn ghost" data-act="plan" ${S.busy.plan ? "disabled" : ""}>${S.busy.plan ? '<span class="spin"></span> Reajustando' : "Reajustar semana"}</button></div>
     <div class="row" style="justify-content:space-between;margin-bottom:14px">
       <div class="weektabs">${S.plan.semanas.map((x, i) => `<button data-week="${i}" aria-pressed="${i === S.week}">S${i+1}${i === curIdx ? " · atual" : ""}</button>`).join("")}</div>
-      <div class="legend"><span class="c-swim">Natação ${mins.swim||0} min</span><span class="c-bike">Bike ${mins.bike||0} min</span><span class="c-run">Corrida ${(mins.run||0)+(mins.brick||0)} min</span><span style="--c:var(--ink)">Total ${fmtDur(total*60)} · carga ${esc(w.carga || "—")}</span></div>
+      <div class="legend"><span class="c-swim">Natação ${mins.swim||0} min</span><span class="c-bike">Bike ${mins.bike||0} min</span><span class="c-run">Corrida ${mins.run||0} min</span>${mins.strength ? `<span class="c-strength">Força ${mins.strength} min</span>` : ""}<span style="--c:var(--ink)">Total ${fmtDur(total*60)} · carga ${esc(w.carga || "—")}</span></div>
     </div>
     <div class="week">${days.map(d => { const date = planDate(S.week, d.dia); const ss = (d.sessoes||[]).filter(s => s.sport !== "rest");
       const done = doneBy[dayKey(date)] || [];
