@@ -389,7 +389,7 @@ function periodStart(k){
 function periodStats(){
   const enough = dataQuality().enough, fit = enough ? fitnessSeries(240) : null, out = {};
   for (const k of Object.keys(PERIODS)){
-    const st = periodStart(k), xs = S.activities.filter(a => new Date(a.date) >= st);
+    const st = periodStart(k), xs = S.activities.filter(a => new Date(a.date) >= st && a.sport !== "other");
     const by = sp => xs.filter(a => a.sport === sp);
     const hours = xs.reduce((s,a)=>s+a.mov,0)/3600, days = Math.max(1, Math.round((Date.now() - st)/864e5));
     const sports = ["swim","bike","run"].filter(sp => by(sp).length).length;
@@ -591,10 +591,37 @@ Responda SÓ com JSON neste formato:
 }
 function planDate(w, d){ return addDays(new Date(S.plan.start + "T00:00:00"), w*7 + d); }
 function activeComplaints(){ return (S.profile?.complaints || []).filter(c => !c.resolvido); }
+/* Treino realizado = atividade que cumpre uma sessão do plano naquele dia. O resto é "atividade fora do plano". */
+const sportFits = (sess, a) => a.sport === sess.sport || (sess.sport === "brick" && (a.sport === "bike" || a.sport === "run" || a.sport === "brick"));
+let _mm = { key:"", sessToAct:new Map(), actToSess:new Map() };
+function planMatches(){
+  const key = (S.plan?.createdAt || "") + "|" + S.activities.length + "|" + (S.activities[0]?.id || "") + "|" + S.activities.filter(a => a.planRef).length;
+  if (_mm.key === key) return _mm;
+  const sessToAct = new Map(), actToSess = new Map();
+  if (S.plan){
+    const today = dayKey(new Date()), byDay = {};
+    S.activities.forEach(a => (byDay[dayKey(a.date)] ||= []).push(a));
+    S.plan.semanas.forEach((w, wi) => (w.dias||[]).forEach(d => {
+      const date = planDate(wi, d.dia), k = dayKey(date);
+      if (k > today || (S.plan.inicio && k < S.plan.inicio)) return;
+      const acts = (byDay[k] || []).filter(a => a.sport !== "other");
+      (d.sessoes||[]).forEach((sess, i) => {
+        if (sess.sport === "rest") return;
+        const ref = `${wi}.${d.dia}.${i}`;
+        let a = acts.find(x => x.planRef && x.planRef === `${wi}-${d.dia}-${i}` && !actToSess.has(x.id));
+        if (!a) a = acts.find(x => !actToSess.has(x.id) && !x.planRef && sportFits(sess, x));
+        if (a){ sessToAct.set(ref, a.id); actToSess.set(a.id, ref); }
+      });
+    }));
+  }
+  _mm = { key, sessToAct, actToSess };
+  return _mm;
+}
+const isPlanned = a => planMatches().actToSess.has(a.id);
 function isDone(sess, date){
   if (!sess || sess.sport === "rest") return false;
-  const k = dayKey(date);
-  return S.activities.some(a => dayKey(a.date) === k && (a.sport === sess.sport || (sess.sport === "brick" && (a.sport === "bike" || a.sport === "run"))));
+  const ref = planRefOf(sess); if (ref) return planMatches().sessToAct.has(ref);
+  const k = dayKey(date); return S.activities.some(a => dayKey(a.date) === k && sportFits(sess, a));
 }
 function adherence(){
   if (!S.plan) return null;
@@ -654,7 +681,7 @@ const chatTools = [
     inputSchema:{ type:"object", properties:{ sport:{type:"string", enum:["swim","bike","run","all"]}, dias:{type:"integer", description:"últimos N dias"} } },
     execute: ({ sport = "all", dias = 30 }) => { const since = addDays(new Date(), -Math.min(dias, 365));
       return S.activities.filter(a => new Date(a.date) >= since && (sport === "all" || a.sport === sport)).slice(0, 80)
-        .map(a => { const o = { data: dayKey(a.date), sport: a.sport, nome: a.name, dist: fmtDist(a.sport, a.dist), tempo: fmtDur(a.mov), fc: a.hr, ritmo: a.sport==="run"?paceRun(a.dist,a.mov):a.sport==="swim"?paceSwim(a.dist,a.mov):speedBike(a.dist,a.mov), esforco: a.rpe, carga: Math.round(loadOf(a)) };
+        .map(a => { const o = { data: dayKey(a.date), categoria: isPlanned(a) ? "treino do plano" : "atividade fora do plano", sport: a.sport, nome: a.name, dist: fmtDist(a.sport, a.dist), tempo: fmtDur(a.mov), fc: a.hr, ritmo: a.sport==="run"?paceRun(a.dist,a.mov):a.sport==="swim"?paceSwim(a.dist,a.mov):speedBike(a.dist,a.mov), esforco: a.rpe, carga: Math.round(loadOf(a)) };
           for (const k of ["tipo","local","cumpriu","feel","clima","watts","cadencia","terreno","series","forca","pre","carbo_g","agua_ml","dor","obs"]) if (a[k] != null && a[k] !== "") o[k] = a[k];
           return o; }); } },
   { name:"ver_semana_do_plano", description:"Retorna uma semana do plano (1 a 4).",
@@ -914,7 +941,7 @@ function loadOf(a){
 function fitnessSeries(days = 120){
   const warm = 90, start = addDays(new Date(new Date().toDateString()), -(days + warm - 1));
   const daily = new Map();
-  for (const a of S.activities){ const k = dayKey(a.date); daily.set(k, (daily.get(k)||0) + loadOf(a)); }
+  for (const a of S.activities){ if (a.sport === "other") continue; const k = dayKey(a.date); daily.set(k, (daily.get(k)||0) + loadOf(a)); }
   let ctl = 0, atl = 0; const out = [];
   for (let i = 0; i < days + warm; i++){
     const d = addDays(start, i), l = daily.get(dayKey(d)) || 0;
@@ -1042,7 +1069,13 @@ function nextSession(){
 const relDay = off => off === 0 ? "Hoje" : off === 1 ? "Amanhã" : null;
 function agoText(d){ const n = Math.floor((new Date(new Date().toDateString()) - new Date(new Date(d).toDateString()))/864e5); return n === 0 ? "hoje" : n === 1 ? "ontem" : `há ${n} dias`; }
 function lastWorkoutHTML(){
-  const a = S.activities[0];
+  const extra = S.activities.find(x => !isPlanned(x));
+  const extraLine = extra ? `<div class="extra-line"><span class="eyebrow">Última atividade fora do plano</span><span>${SPORTS[extra.sport] === "Outro" ? esc(extra.name) : SPORTS[extra.sport]}${extra.dist ? ` · ${fmtDist(extra.sport, extra.dist)}` : ""} · ${fmtDur(extra.mov)} · ${agoText(extra.date)}</span></div>` : "";
+  const a = S.activities.find(isPlanned);
+  if (!a) return `<p class="muted" style="margin:0">${S.plan ? "Nenhum treino do plano concluído ainda." : "Gere o plano para começar a contar os treinos."}</p>${extraLine}`;
+  return lastWorkoutBody(a) + extraLine;
+}
+function lastWorkoutBody(a){
   if (!a) return `<p class="muted" style="margin:0">Nenhum treino importado ainda.</p><div><button class="btn ghost" data-go="dados">Conectar dados</button></div>`;
   const pace = a.sport==="run"?paceRun(a.dist,a.mov):a.sport==="swim"?paceSwim(a.dist,a.mov):a.sport==="bike"?speedBike(a.dist,a.mov):null;
   const srcName = { strava:"Strava", garmin:"Garmin", apple:"Apple Watch", manual:"manual" }[a.src] || "";
@@ -1431,6 +1464,7 @@ function viewPainel(){
   <div style="margin-top:16px">${chatBox(true)}</div>`;
 }
 function doneHTML(a){
+  if (!isPlanned(a)) return `<div class="doneitem extra c-${a.sport}"><b>${SPORTS[a.sport] === "Outro" ? esc(a.name) : SPORTS[a.sport]} · fora do plano</b> <span class="mono">${[a.dist ? fmtDist(a.sport, a.dist) : "", fmtDur(a.mov)].filter(Boolean).join(" · ")}</span></div>`;
   return `<div class="doneitem c-${a.sport}"><b>✓ ${SPORTS[a.sport]}</b> <span class="mono">${[a.dist ? fmtDist(a.sport, a.dist) : "", fmtDur(a.mov), a.rpe ? `esforço ${a.rpe}` : ""].filter(Boolean).join(" · ")}</span></div>`;
 }
 function viewTreinos(){
@@ -1484,16 +1518,24 @@ function calendarHTML(){
     </div>
   </section>`;
 }
-function doneTableHTML(){
-  const xs = S.activities.slice(0, 30);
-  return `<section class="panel" style="margin-top:16px"><div class="ph"><h2>Treinos feitos</h2><span class="note">${S.activities.length} no histórico</span></div>
-    ${xs.length ? `<div class="tbl"><table><thead><tr><th>Data</th><th>Modalidade</th><th>Treino</th><th class="num">Distância</th><th class="num">Tempo</th><th class="num">Ritmo</th><th class="num">Esforço</th><th>Origem</th><th></th></tr></thead><tbody>
-    ${xs.map(a => `<tr><td class="mono">${fmtDate(a.date)}</td><td><span class="tag c-${a.sport}">${SPORTS[a.sport]}</span></td><td class="name">${esc(a.name)}${a.obs ? `<div class="note">${esc(a.obs.slice(0,90))}</div>` : ""}</td>
+function actRowsHTML(xs, planned){
+  return `<div class="tbl"><table><thead><tr><th>Data</th><th>Modalidade</th><th>${planned ? "Treino do plano" : "Atividade"}</th><th class="num">Distância</th><th class="num">Tempo</th><th class="num">Ritmo</th><th class="num">Esforço</th><th>Origem</th><th></th></tr></thead><tbody>
+    ${xs.map(a => { const ref = planMatches().actToSess.get(a.id), sess = ref ? sessByRef(ref) : null;
+      return `<tr><td class="mono">${fmtDate(a.date)}</td><td><span class="tag c-${a.sport}">${SPORTS[a.sport]}</span></td><td class="name">${esc(a.name)}${sess ? `<div class="note">✓ ${esc(sess.titulo || SPORTS[sess.sport])}</div>` : ""}${a.obs ? `<div class="note">${esc(a.obs.slice(0,90))}</div>` : ""}</td>
       <td class="num">${a.dist ? fmtDist(a.sport,a.dist) : "—"}</td><td class="num">${fmtDur(a.mov)}</td><td class="num">${a.sport==="run"?paceRun(a.dist,a.mov):a.sport==="swim"?paceSwim(a.dist,a.mov):a.sport==="bike"?speedBike(a.dist,a.mov):"—"}</td>
       <td class="num">${a.rpe ? `${a.rpe}/10` : `<select class="rpesel" data-rpesel="${esc(a.id)}" aria-label="Avaliar esforço"><option value="">avaliar</option>${Array.from({length:10},(_,i)=>`<option>${i+1}</option>`).join("")}</select>`}</td>
       <td class="note">${({ strava:"Strava", garmin:"Garmin", apple:"Apple Watch", manual:"Manual" })[a.src] || "—"}</td>
-      <td>${a.src === "manual" ? `<button class="btn ghost sm" data-del="${esc(a.id)}" aria-label="Apagar treino">Apagar</button>` : ""}</td></tr>`).join("")}
-    </tbody></table></div>` : `<div class="empty"><h3>Nenhum treino ainda</h3><p class="muted" style="margin:0">Atualize o Strava ou registre um treino feito sem relógio.</p><button class="btn" data-act="showlog">Registrar treino</button></div>`}
+      <td>${a.src === "manual" ? `<button class="btn ghost sm" data-del="${esc(a.id)}" aria-label="Apagar">Apagar</button>` : ""}</td></tr>`; }).join("")}
+    </tbody></table></div>`;
+}
+function doneTableHTML(){
+  const planned = S.activities.filter(isPlanned).slice(0, 30), extra = S.activities.filter(a => !isPlanned(a)).slice(0, 30);
+  const nP = S.activities.filter(isPlanned).length, nE = S.activities.length - nP;
+  return `<section class="panel" style="margin-top:16px"><div class="ph"><h2>Treinos realizados</h2><span class="note">${nP} do plano · aderência ${adherence() ?? "—"}%</span></div>
+    ${planned.length ? actRowsHTML(planned, true) : `<p class="note" style="margin:0">${S.plan ? "Quando você fizer um treino planejado, ele aparece aqui. O app reconhece pela modalidade e pelo dia; no registro manual, escolha o treino do plano." : "Gere o plano para começar a contar os treinos."}</p>`}
+  </section>
+  <section class="panel" style="margin-top:16px"><div class="ph"><h2>Atividades fora do plano</h2><span class="note">${nE} no histórico · caminhadas, treinos extras, outros esportes</span></div>
+    ${extra.length ? actRowsHTML(extra, false) : `<p class="note" style="margin:0">Nada fora do plano.</p>`}
   </section>`;
 }
 function planSectionHTML(){

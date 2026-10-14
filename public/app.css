@@ -276,6 +276,9 @@ nav.tabs button.me{display:inline-flex;align-items:center;gap:6px;margin-left:6p
 .swappanel{flex-basis:100%;margin-top:6px;padding:10px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 .swappanel .chips{margin:0}
 .swappanel .swapcustom{width:auto;flex:1;min-width:140px;padding:6px 8px;font-size:12.5px}
+.extra-line{display:flex;flex-direction:column;gap:4px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13.5px}
+.doneitem.extra{background:var(--soft);border-left-color:var(--muted)}
+.doneitem.extra b{color:var(--muted)}
 .first{margin-bottom:16px}
 .first .checkin{margin-top:0;border-color:var(--ink)}
 .meter{height:8px;border-radius:4px;background:var(--soft);overflow:hidden}
