@@ -672,7 +672,9 @@ async function generatePlan(opts = {}){
   if (!aberta){ busy("plan", false); flash("plano", "Sua semana já terminou. " + WEEK_GEN_TEXT, false); return; }
   const nDias = Math.round((to - from) / 864e5) + 1;
   const dias = Array.from({length: nDias}, (_, i) => addDays(from, i));
-  const fmtD = d => `${dayKey(d)} (${d.toLocaleDateString("pt-BR",{weekday:"long"})})`;
+  const avail = Array.isArray(S.profile?.days) && S.profile.days.length ? new Set(S.profile.days.map(Number)) : null;
+  const livre = d => !avail || avail.has((d.getDay() + 6) % 7);
+  const fmtD = d => `${dayKey(d)} (${d.toLocaleDateString("pt-BR",{weekday:"long"})}${livre(d) ? "" : " — INDISPONÍVEL: sessoes []"})`;
   const map = planDayMap(S.plan);
   const anteriores = Object.entries(map).filter(([k]) => k >= dayKey(from)).map(([data, ss]) => ({ data, sessoes: ss.map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona, ...(x.movido ? { movido_pelo_atleta: true } : {}) })) }));
   const semanaAtual = (() => { const m = mondayOf(hoje), xs = S.activities.filter(a => new Date(a.date) >= m && a.sport !== "other"), by = sp => Math.round(xs.filter(a => a.sport === sp).reduce((t,a)=>t+a.mov,0)/60);
@@ -682,7 +684,8 @@ Hoje: ${hoje.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"lon
 Dias a planejar (exatamente ${nDias}, em ordem): ${dias.map(fmtD).join(", ")}.
 Prova: ${JSON.stringify(raceForAI())} · faltam ${daysToRace()} dias · fase ${JSON.stringify(phaseFor(daysToRace()))} · nível no método ${athleteTier()}
 Atleta: ${JSON.stringify(profileForAI())}
-Preferência por dia: ${({ "1":"no máximo 1 modalidade por dia", "2":"no máximo 2 sessões por dia", "1+gym":"1 modalidade por dia; força pode ser no mesmo dia", "todas":"pode combinar várias sessões no dia" })[S.profile?.porDia] || "não informada"} · fim de semana/feriado: ${S.profile?.fds === "Sim" ? "pode juntar modalidades (longão, brick)" : "mesma regra"}
+Preferência por dia: ${({ "1":"no máximo 1 modalidade por dia", "2":"no máximo 2 sessões por dia", "1+gym":"1 modalidade por dia; força pode ser no mesmo dia", "todas":"pode combinar várias sessões no dia" })[S.profile?.porDia] || "não informada"} ${avail && (avail.has(5) || avail.has(6)) ? ` · fim de semana/feriado: ${S.profile?.fds === "Sim" ? "pode juntar modalidades (longão, brick)" : "mesma regra"}` : ""}
+Dias da semana disponíveis: ${avail ? [...avail].sort().map(d => DIAS_NOME[d]).join(", ") + " (nos outros dias, nenhum treino)" : "todos"}
 Queixas ativas: ${JSON.stringify(complaintsForAI())}
 Testes de nivelamento: ${JSON.stringify(testsForAI())}
 Planejado × feito (7 dias): ${JSON.stringify(planVsDone(7))}
@@ -697,7 +700,9 @@ Condicionamento: ${JSON.stringify(fitnessForAI())}`;
     if (!r || !Array.isArray(r.dias)) throw { code:"invalid_json" };
     const fromK = dayKey(from), toK = dayKey(to);
     Object.keys(map).forEach(k => { if (k >= fromK) delete map[k]; });
-    r.dias.forEach(d => { if (d?.data >= fromK && d.data <= toK) map[d.data] = (d.sessoes || []).filter(x => x && x.sport !== "rest"); });
+    r.dias.forEach(d => { if (!(d?.data >= fromK && d.data <= toK)) return;
+      const ss = (d.sessoes || []).filter(x => x && x.sport !== "rest");
+      map[d.data] = livre(new Date(d.data + "T12:00:00")) ? ss : ss.filter(x => x.movido); }); // dia indisponível: só fica o que o próprio atleta moveu para lá
     const start = S.plan?.start ? new Date(S.plan.start + "T00:00:00") : planStart();
     const { dias: _d, semana, ...meta } = r;
     S.plan = { ...meta, start: dayKey(start), inicio: S.plan?.inicio || dayKey(hoje), fim: toK, rolling: true,
@@ -2062,7 +2067,7 @@ function profileFormHTML(onboarding){
       <div class="fld full"><label>Em um dia comum, quero treinar:</label>
         <div class="days pills">${[["1","Só 1 modalidade"],["2","Até 2 modalidades"],["1+gym","1 modalidade + academia"],["todas","Todas que o plano pedir"]].map(([v,l]) => `<label><input type="radio" name="q_pordia" value="${v}" ${p.porDia === v ? "checked" : ""}>${l}</label>`).join("")}</div></div>
       <div class="fld full"><label>Sábado, domingo e feriados: posso treinar todas as modalidades no mesmo dia?</label>${pills("q_fds", ["Sim","Não"], p.fds || "")}</div>
-      <div class="fld full"><div class="row"><button class="btn" type="submit">${onboarding ? "Concluir cadastro" : "Salvar perfil"}</button>${!onboarding ? '<span class="note">Gere um novo plano após mudanças grandes.</span>' : ""}</div></div>
+      <div class="fld full"><div class="row"><button class="btn" type="submit">${onboarding ? "Concluir cadastro" : "Salvar perfil"}</button>${!onboarding ? '<span class="note">Ao mudar dias, horas ou equipamento, os treinos da semana são reajustados sozinhos.</span>' : ""}</div></div>
     </form>`;
 }
 function connectionsHTML(){
@@ -2187,6 +2192,7 @@ document.addEventListener("submit", e => {
   e.preventDefault();
   if (e.target.id === "chatform"){ const t = $("#chatin"); const v = t.value; t.value = ""; sendChat(v); }
   if (e.target.id === "profile"){
+    const PLAN_KEYS = ["days","hours","pool","porDia","fds","rolo","corre","fraco","lesao","lesaoQual","peso"], before = JSON.stringify(PLAN_KEYS.map(k => S.profile?.[k] ?? null));
     const days = [...document.querySelectorAll('input[name="day"]:checked')].map(x => +x.value);
     S.profile = { ...(S.profile||{}), nick: $("#nick").value.trim(),
       peso: parseFloat($("#peso").value) || null, altura: parseFloat($("#altura").value) || null,
@@ -2206,6 +2212,11 @@ document.addEventListener("submit", e => {
       S.msg.painel = { text: "Cadastro feito. Puxando seus treinos e montando o plano…", err:false };
       go("painel");
       (async () => { if (!S.activities.length) await syncStrava(); if (!S.plan) await generatePlan(); S.msg.painel = null; coachNote(true); render(); })();
+    } else if (S.plan && JSON.stringify(PLAN_KEYS.map(k => S.profile[k] ?? null)) !== before){
+      // mudou algo que afeta o plano (dias, horas, equipamento…): reajusta os treinos da semana na hora
+      S.plan.forceReplan = true; replanTriedAt = 0;
+      flash("dados", "Perfil salvo. Reajustando os treinos da semana com as novas configurações…", false);
+      maybeReplan();
     } else flash("dados", "Perfil salvo.", false);
   }
   if (e.target.id === "quickgym"){
