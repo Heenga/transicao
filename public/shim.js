@@ -172,6 +172,10 @@
     document.querySelectorAll("[data-authmode]").forEach(b => b.addEventListener("click", () => setMode(b.dataset.authmode)));
     let cfg;
     try { cfg = await fetch("/api/config").then(r => r.json()); } catch { cfg = {}; }
+    if (cfg.version) {
+      const built = cfg.builtAt ? new Date(cfg.builtAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+      $("#appversion").textContent = ["Versão " + cfg.version, cfg.commit, built].filter(Boolean).join(" · ");
+    }
     if (!cfg.supabaseUrl || !window.supabase) { $("#auth").hidden = false; showErr("Configuração do servidor incompleta: confira as variáveis do Supabase no Vercel."); return; }
     sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } });
     $("#logout").addEventListener("click", logout);
