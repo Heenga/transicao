@@ -7,10 +7,13 @@ export const env = (k: string, fallback?: string) => {
   return v;
 };
 
+/** URL base do projeto Supabase, aceitando também a URL da API REST colada por engano (…/rest/v1/). */
+export const supabaseUrl = () => (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim().replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+
 let admin: SupabaseClient | null = null;
 /** Cliente com a chave service_role: ignora RLS. Só no servidor. */
 export function supabaseAdmin(): SupabaseClient {
-  if (!admin) admin = createClient(env("NEXT_PUBLIC_SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+  if (!admin) admin = createClient(supabaseUrl() || env("NEXT_PUBLIC_SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
   return admin;
 }
 
