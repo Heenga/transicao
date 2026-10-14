@@ -1106,18 +1106,39 @@ function loadOf(a){
   const ifac = a.rpe ? 0.45 + 0.055 * a.rpe : a.hr ?Math.min(1.15, Math.max(.5, a.hr / 168)) : (IF_DEFAULT[a.sport] ?? .55);
   return h * ifac * ifac * 100;
 }
-function fitnessSeries(days = 120){
-  const warm = 90, start = addDays(new Date(new Date().toDateString()), -(days + warm - 1));
+/* Condicionamento = função pura dos treinos registrados, nunca do relógio nem da tela.
+   Uma única série diária: começa no 1º treino (tudo zerado antes dele) e termina no dia do último treino.
+   Mesmos treinos → mesmo número, em qualquer tela, recarga ou dia. Só muda quando entra/sai um treino
+   ou quando a duração, FC ou esforço de um treino mudam. */
+let _fit = { key: null, series: [] };
+function fitnessAll(){
+  const xs = S.activities.filter(a => a.sport !== "other" && a.mov > 0);
+  const key = xs.map(a => `${a.id}|${dayKey(a.date)}|${a.mov}|${a.hr || ""}|${a.rpe || ""}|${a.sport}`).sort().join(";");
+  if (_fit.key === key) return _fit.series;
   const daily = new Map();
-  for (const a of S.activities){ if (a.sport === "other") continue; const k = dayKey(a.date); daily.set(k, (daily.get(k)||0) + loadOf(a)); }
-  let ctl = 0, atl = 0; const out = [];
-  for (let i = 0; i < days + warm; i++){
-    const d = addDays(start, i), l = daily.get(dayKey(d)) || 0;
-    ctl += (l - ctl) / 42; atl += (l - atl) / 7;
-    if (i >= warm) out.push({ d, ctl, atl, tsb: ctl - atl, load: l });
+  for (const a of xs){ const k = dayKey(a.date); daily.set(k, (daily.get(k) || 0) + loadOf(a)); }
+  const keys = [...daily.keys()].sort(), out = [];
+  if (keys.length){
+    const first = new Date(keys[0] + "T00:00:00"), last = new Date(keys.at(-1) + "T00:00:00");
+    let ctl = 0, atl = 0;
+    for (let d = first; d <= last; d = addDays(d, 1)){
+      const l = daily.get(dayKey(d)) || 0;
+      ctl += (l - ctl) / 42; atl += (l - atl) / 7;
+      out.push({ d, ctl, atl, tsb: ctl - atl, load: l });
+    }
   }
+  _fit = { key, series: out };
   return out;
 }
+/** Últimos `days` dias da série (até o dia do último treino), completando com zeros antes do 1º treino. */
+function fitnessSeries(days = 120){
+  const all = fitnessAll();
+  if (!all.length) return [];
+  if (all.length >= days) return all.slice(-days);
+  const pad = Array.from({ length: days - all.length }, (_, i) => ({ d: addDays(all[0].d, -(days - all.length) + i), ctl: 0, atl: 0, tsb: 0, load: 0 }));
+  return [...pad, ...all];
+}
+const fitnessAsOf = () => fitnessAll().at(-1)?.d || null;
 function formState(tsb){
   if (tsb > 5) return { t:"Descansado", c:"var(--swim)", d:"Pronto para treinar forte ou competir." };
   if (tsb >= -10) return { t:"Equilibrado", c:"var(--ok)", d:"Carga e recuperação em equilíbrio." };
@@ -1202,7 +1223,8 @@ function motivosHTML(now){
 function dataQuality(){
   const xs = S.activities; if (!xs.length) return { enough:false, msg:"Ainda não há treinos registrados. Sincronize o Strava ou registre um treino." };
   const first = xs.reduce((m,a) => a.date < m ? a.date : m, xs[0].date);
-  const days = Math.floor((Date.now() - new Date(first)) / 864e5);
+  const last = xs.reduce((m,a) => a.date > m ? a.date : m, xs[0].date);
+  const days = Math.floor((new Date(last) - new Date(first)) / 864e5);
   const est = xs.filter(a => !a.hr && !a.rpe && a.mov).length;
   const enough = xs.length >= 4 && days >= 14;
   return { enough, n: xs.length, days, est, msg: enough ? "" : `Precisamos de pelo menos 4 treinos ao longo de 2 semanas para calcular sem chutar. Hoje há ${xs.length} treino${xs.length === 1 ? "" : "s"} em ${days} dia${days === 1 ? "" : "s"}.` };
@@ -1212,6 +1234,7 @@ function howCalcHTML(dq){
     <ol>
       <li><b>Carga de cada treino</b> = horas × intensidade² × 100. A intensidade vem da sua <b>FC média ÷ 168 bpm</b> (FC de limiar de referência) ou do <b>esforço 1–10</b> que você informou.</li>
       <li><b>Condicionamento</b> = média da carga diária dos últimos 42 dias, com mais peso nos dias recentes. Escala de 0 a 100, em que 100 é a carga média diária de um atleta profissional.</li>
+      <li><b>Só muda com treino novo:</b> o cálculo vai do seu 1º treino até o último registrado. Recarregar a página ou passar o dia não altera o número; ele é recalculado quando entra um treino ou quando você corrige duração, FC ou esforço.</li>
       <li><b>Fadiga</b> = a mesma média nos últimos 7 dias. <b>Equilíbrio</b> = condicionamento − fadiga: positivo é descansado, muito negativo é sobrecarga.</li>
     </ol>
     ${dq.est ? `<p class="note warnline" style="margin:8px 0 0">${dq.est} treino${dq.est === 1 ? "" : "s"} sem FC nem esforço usa${dq.est === 1 ? "" : "m"} a intensidade média da modalidade. Avalie o esforço deles na aba Treinos para deixar o número exato.</p>` : `<p class="note" style="margin:8px 0 0">Todos os treinos têm FC ou esforço informado.</p>`}
@@ -1576,7 +1599,7 @@ function viewPainel(){
   ${!ckDone ? `<div class="first">${checkinHTML()}</div>${weighCard}` : ""}
 
   <div class="fit">
-    <section class="panel cond"><div class="ph"><h2>Condicionamento</h2><span class="note">índice 0–100</span></div>
+    <section class="panel cond"><div class="ph"><h2>Condicionamento</h2><span class="note">índice 0–100${fitnessAsOf() ? ` · até o treino de ${fitnessAsOf().toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}` : ""}</span></div>
       ${now ? `<div class="cond-main"><div class="big mono">${fmtNum(score(now.ctl),1)}</div><div><div class="note">de 100</div>${change != null ? `<div class="delta ${change >= 0 ? "good" : "bad"}">${change >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(change),1)}% em 4 semanas</div>` : ""}</div></div>
         <div class="meter" aria-hidden="true"><i style="width:${score(now.ctl)}%"></i></div>
         <div class="state" style="--c:${st.c}"><b>${st.t}</b><span>${st.d}</span></div>
