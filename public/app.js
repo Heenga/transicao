@@ -2256,6 +2256,8 @@ function bgRender(prev, next){
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b){ setMenu(false); go(b.dataset.v); } });
 /* menu do celular: header compacto (logo + nome) e ☰ que abre abas, Recarregar e Sair */
 function setMenu(open){ const h = $("header.top"); h.classList.toggle("open", open); $("#menubtn").setAttribute("aria-expanded", String(open)); $("#menubtn").setAttribute("aria-label", open ? "Fechar menu" : "Abrir menu"); }
+// logo e nome levam de volta ao Painel (sem recarregar a página)
+$("#brand").addEventListener("click", e => { if (!S.ready || !S.profile) return; e.preventDefault(); setMenu(false); S.openSess = null; go("painel"); });
 $("#bottomnav").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b){ setMenu(false); go(b.dataset.v); } });
 $("#menubtn").addEventListener("click", () => setMenu(!$("header.top").classList.contains("open")));
 document.addEventListener("click", e => { if ($("header.top").classList.contains("open") && !e.target.closest("header.top")) setMenu(false); });
