@@ -383,3 +383,5 @@ table.items{font-size:13px;margin-top:6px}
 .hm{display:flex;align-items:center;gap:6px}
 .hm input{flex:1;min-width:0}
 .hm span{font-size:12.5px;color:var(--muted)}
+.mvrow{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.swappanel .chip small{color:var(--muted);font-weight:400}

@@ -617,7 +617,7 @@ async function generatePlan(opts = {}){
   const dias = Array.from({length: nDias}, (_, i) => addDays(from, i));
   const fmtD = d => `${dayKey(d)} (${d.toLocaleDateString("pt-BR",{weekday:"long"})})`;
   const map = planDayMap(S.plan);
-  const anteriores = Object.entries(map).filter(([k]) => k >= dayKey(from)).map(([data, ss]) => ({ data, sessoes: ss.map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona })) }));
+  const anteriores = Object.entries(map).filter(([k]) => k >= dayKey(from)).map(([data, ss]) => ({ data, sessoes: ss.map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona, ...(x.movido ? { movido_pelo_atleta: true } : {}) })) }));
   const semanaAtual = (() => { const m = mondayOf(hoje), xs = S.activities.filter(a => new Date(a.date) >= m && a.sport !== "other"), by = sp => Math.round(xs.filter(a => a.sport === sp).reduce((t,a)=>t+a.mov,0)/60);
     return { desde: dayKey(m), treinos: xs.length, min_natacao: by("swim"), min_bike: by("bike"), min_corrida: by("run") + by("brick"), min_forca: by("strength") }; })();
   const prompt = `Você é um treinador de triatlo experiente acompanhando o atleta dia a dia, em português do Brasil.
@@ -656,6 +656,7 @@ COMO AVALIAR E AJUSTAR:
 - Treino perdido não se "paga" acumulando: redistribua com bom senso e mantenha o equilíbrio da semana (modalidades, dias fortes x fáceis).
 - Esforço alto em treino que era fácil, dor, sono ruim ou cansaço → alivie os próximos dias. Tudo cumprido e com folga → pode progredir um pouco (respeitando +10%/semana).
 - Nunca 2 dias fortes seguidos; nada forte depois do longão; corrida forte não em dias seguidos.
+- Sessões com "movido_pelo_atleta": o próprio atleta escolheu aquele dia. Mantenha a sessão nesse dia (pode ajustar volume/intensidade) e mantenha "movido": true nela; só mude o dia se for claramente inseguro, e diga por quê na avaliação.
 
 REGRAS:
 - Respeite os dias disponíveis e as horas semanais. Dia indisponível = descanso (sessoes: []).
@@ -667,7 +668,7 @@ REGRAS:
 - QUEIXAS ATIVAS: ${JSON.stringify(activeComplaints())}. Para cada queixa, adapte: reduza impacto/volume na modalidade que agrava, inclua exercícios de reabilitação progressiva na força (ex.: tendão de Aquiles → excêntrico/isométrico de panturrilha com joelho estendido e flexionado; dor ≤3/10 durante e sem piora no dia seguinte é aceitável). Nunca diagnostique.
 
 Responda SÓ com JSON neste formato:
-{"avaliacao":"2 a 3 frases, falando com o atleta: como foram os últimos treinos (com números) e o que você ajustou por causa disso. Se ainda não houver treinos, diga como vai começar.","resumo":"1 frase sobre a direção dos próximos dias","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semana":{"foco":"texto curto sobre esta semana","carga":"leve|moderada|alta|recuperação"},"dias":[{"data":"YYYY-MM-DD","sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","min":60,"dist":"2.000 m ou 30 km ou vazio","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}
+{"avaliacao":"2 a 3 frases, falando com o atleta: como foram os últimos treinos (com números) e o que você ajustou por causa disso. Se ainda não houver treinos, diga como vai começar.","resumo":"1 frase sobre a direção dos próximos dias","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semana":{"foco":"texto curto sobre esta semana","carga":"leve|moderada|alta|recuperação"},"dias":[{"data":"YYYY-MM-DD","sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","movido":false,"min":60,"dist":"2.000 m ou 30 km ou vazio","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}
 "dias" tem exatamente os ${nDias} dias pedidos, em ordem. Descanso = sessoes: [].
 "exercicios" só nas sessões strength (4 a 7 exercícios). "etapas" em toda sessão que não for força: cada etapa com fase, minutos e descrição curta (até 70 caracteres). Não use "detalhe" longo.`;
   try {
@@ -698,7 +699,7 @@ function activeComplaints(){ return (S.profile?.complaints || []).filter(c => !c
 const sportFits = (sess, a) => a.sport === sess.sport || (sess.sport === "brick" && (a.sport === "bike" || a.sport === "run" || a.sport === "brick"));
 let _mm = { key:"", sessToAct:new Map(), actToSess:new Map() };
 function planMatches(){
-  const key = (S.plan?.updatedAt || S.plan?.createdAt || "") + "|" + S.activities.length + "|" + (S.activities[0]?.id || "") + "|" + S.activities.filter(a => a.planRef).length;
+  const key = (S.plan?.updatedAt || S.plan?.createdAt || "") + (S.plan?.editedAt || "") + "|" + S.activities.length + "|" + (S.activities[0]?.id || "") + "|" + S.activities.filter(a => a.planRef).length;
   if (_mm.key === key) return _mm;
   const sessToAct = new Map(), actToSess = new Map();
   if (S.plan){
@@ -1018,11 +1019,34 @@ function sessHTML(s, date){
     return `<li><span>${esc(x.nome)}${x.trocado ? ` <small class="note">(no lugar de ${esc(x.trocado)})</small>` : ""}</span><b>${esc([x.series && x.reps ? `${x.series}×${x.reps}` : x.series || x.reps, x.carga].filter(Boolean).join(" · "))}</b>${x.obs ? `<em>${esc(x.obs)}</em>` : ""}
       ${ref ? `<button type="button" class="swapbtn" data-swap="${ref}" data-ei="${ei}" aria-expanded="${!!open}">Trocar</button>` : ""}
       ${open ? swapPanelHTML(x, ref, ei) : ""}</li>`; }).join("")}</ul>` : "";
+  const movable = ref && !done && s.sport !== "rest" && (() => { const [wi, dia] = ref.split(".").map(Number); return dayKey(planDate(wi, dia)) >= dayKey(new Date()); })();
+  const mv = movable ? `<div class="mvrow"><button type="button" class="swapbtn" data-move="${ref}" aria-expanded="${S.move === ref}">Mudar dia</button>${s.movido ? `<span class="note">movido por você</span>` : ""}</div>${S.move === ref ? movePanelHTML(ref) : ""}` : "";
   return `<div class="sess c-${sp}${done ? " done" : ""}"><div class="t">${esc(s.titulo || SPORTS[sp])}</div>
     ${chips ? `<div class="smeta">${chips}</div>` : ""}
     ${etapas ? `<ol class="steps">${etapas}</ol>` : ""}
     ${s.sport === "strength" && s.detalhe ? `<div class="d">${esc(s.detalhe)}</div>` : ""}
-    ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}</div>`;
+    ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}${mv}</div>`;
+}
+/* ---------- mudar treino de dia (o atleta mexe no plano) ---------- */
+function movePanelHTML(ref){
+  const [wi, dia] = ref.split(".").map(Number), todayK = dayKey(new Date()), w = S.plan.semanas[wi];
+  const opts = Array.from({length:7}, (_, d) => d).filter(d => d !== dia && dayKey(planDate(wi, d)) >= todayK);
+  if (!opts.length) return `<div class="swappanel"><span class="note">Não há outro dia livre nesta semana.</span></div>`;
+  const what = d => (w.dias.find(x => x.dia === d)?.sessoes || []).filter(x => x.sport !== "rest").map(x => SPORTS[x.sport]).join(" + ");
+  const lbl = d => `${DOW[d]} ${planDate(wi, d).getDate()}`;
+  const withS = opts.filter(d => what(d));
+  return `<div class="swappanel"><div class="note">Mover este treino para:</div>
+    <div class="chips">${opts.map(d => `<button type="button" class="chip" data-moveto="${d}" data-ref="${ref}">${lbl(d)}${what(d) ? ` <small>· já tem ${esc(what(d))}</small>` : " <small>· livre</small>"}</button>`).join("")}</div>
+    ${withS.length ? `<div class="note">Ou trocar o dia inteiro com:</div><div class="chips">${withS.map(d => `<button type="button" class="chip" data-swapday="${d}" data-ref="${ref}">${lbl(d)} <small>(${esc(what(d))})</small></button>`).join("")}</div>` : ""}
+    <div><button type="button" class="btn ghost sm" data-moveclose>Cancelar</button></div></div>`;
+}
+function planDay(wi, d){ const w = S.plan.semanas[wi]; let x = w.dias.find(y => y.dia === d); if (!x){ x = { dia: d, sessoes: [] }; w.dias.push(x); } x.sessoes ||= []; return x; }
+function movePlanned(ref, toDia, swapDay){
+  const [wi, dia, i] = ref.split(".").map(Number), from = planDay(wi, dia), to = planDay(wi, toDia);
+  if (swapDay){ const a = from.sessoes, b = to.sessoes; from.sessoes = b; to.sessoes = a; [...a, ...b].forEach(x => { if (x.sport !== "rest") x.movido = true; }); }
+  else { const [s] = from.sessoes.splice(i, 1); if (!s) return; s.movido = true; to.sessoes = [...to.sessoes.filter(x => x.sport !== "rest"), s]; }
+  S.plan.editedAt = new Date().toISOString(); S.move = null; save("plan", S.plan);
+  flash(S.view, swapDay ? `Dias trocados: ${DOW[dia]} ⇄ ${DOW[toDia]}.` : `Treino movido para ${DOW[toDia]} ${planDate(wi, toDia).getDate()}.`, false);
 }
 function complaintsHTML(withActions){
   const list = activeComplaints();
@@ -1911,6 +1935,10 @@ document.addEventListener("click", e => {
   if (e.target.closest("[data-swapai]")){ swapAI(); return; }
   if (e.target.closest("[data-swapcustom]")){ const v = e.target.closest(".swappanel")?.querySelector(".swapcustom")?.value.trim(); if (v) applySwap(v); return; }
   if (e.target.closest("[data-swapclose]")){ S.swap = null; render(); return; }
+  const mo = e.target.closest("[data-move]"); if (mo){ S.move = S.move === mo.dataset.move ? null : mo.dataset.move; render(); return; }
+  const mt = e.target.closest("[data-moveto]"); if (mt){ movePlanned(mt.dataset.ref, +mt.dataset.moveto, false); return; }
+  const sd = e.target.closest("[data-swapday]"); if (sd){ movePlanned(sd.dataset.ref, +sd.dataset.swapday, true); return; }
+  if (e.target.closest("[data-moveclose]")){ S.move = null; render(); return; }
   const cm = e.target.closest("[data-calm]"); if (cm){ const n = +cm.dataset.calm, t = new Date(); const b = S.calMonth ? new Date(S.calMonth+"-01T12:00:00") : new Date(t.getFullYear(), t.getMonth(), 1); const nb = n === 0 ? new Date(t.getFullYear(), t.getMonth(), 1) : new Date(b.getFullYear(), b.getMonth()+n, 1); S.calMonth = `${nb.getFullYear()}-${String(nb.getMonth()+1).padStart(2,"0")}`; render(); return; }
   const cd = e.target.closest("[data-cald]"); if (cd){ S.calSel = cd.dataset.cald; render(); return; }
   const pd = e.target.closest("[data-period]"); if (pd){ S.period = pd.dataset.period; render(); return; }
