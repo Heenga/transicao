@@ -2173,7 +2173,8 @@ function render(){
   const hadFocus = document.activeElement?.id === "chatin";
   const y = window.scrollY;
   const onboarding = S.ready && !S.profile;
-  $("#tabs").hidden = !S.ready || onboarding; $("#menubtn").hidden = $("#tabs").hidden;
+  $("#tabs").hidden = !S.ready || onboarding; $("#menubtn").hidden = $("#tabs").hidden; $("#bottomnav").hidden = $("#tabs").hidden;
+  document.querySelectorAll("#bottomnav button").forEach(b => b.setAttribute("aria-current", b.dataset.v === S.view ? "page" : "false"));
   const rb = document.querySelector(".reloadbtn"); if (rb){ rb.hidden = !S.ready || !S.db; rb.disabled = !!S.busy.reload; }
   app.innerHTML = !S.ready ? app.innerHTML : onboarding ? viewOnboarding() : ({ painel:viewPainel, treinos:viewTreinos, coach:viewCoach, dieta:viewDieta, equipe:viewEquipe, dados:viewDados })[S.view]();
   let sh = $("#sheet"); if (!sh){ sh = document.createElement("div"); sh.id = "sheet"; document.body.append(sh); }
@@ -2200,6 +2201,7 @@ function bgRender(prev, next){
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b){ setMenu(false); go(b.dataset.v); } });
 /* menu do celular: header compacto (logo + nome) e ☰ que abre abas, Recarregar e Sair */
 function setMenu(open){ const h = $("header.top"); h.classList.toggle("open", open); $("#menubtn").setAttribute("aria-expanded", String(open)); $("#menubtn").setAttribute("aria-label", open ? "Fechar menu" : "Abrir menu"); }
+$("#bottomnav").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b){ setMenu(false); go(b.dataset.v); } });
 $("#menubtn").addEventListener("click", () => setMenu(!$("header.top").classList.contains("open")));
 document.addEventListener("click", e => { if ($("header.top").classList.contains("open") && !e.target.closest("header.top")) setMenu(false); });
 document.addEventListener("click", e => {

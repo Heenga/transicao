@@ -430,3 +430,25 @@ body.sheet-open{overflow:hidden}
 .ctips li{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;background:var(--soft,color-mix(in srgb,var(--ink) 4%,transparent));border-left:3px solid var(--swim)}
 .ctips b{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .ctips span{font-size:14px;line-height:1.45}
+/* ---------- jeito de aplicativo no celular ---------- */
+html{-webkit-text-size-adjust:100%}
+button,a,label,summary,.sessbtn,.cday{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.btn:active,.sessbtn:active,.chips button:active,.cday:active{transform:scale(.97)}
+.btn,.sessbtn,.chips button,.cday{transition:transform .08s ease}
+.bottomnav{display:none}
+@media (max-width:720px){
+  input,select,textarea{font-size:16px} /* evita o zoom automático do iPhone ao tocar no campo */
+  body{padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+  .bottomnav:not([hidden]){display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:30;
+    background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px))}
+  .bottomnav button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;border:0;background:none;color:var(--muted);font:600 10.5px/1 var(--body);cursor:pointer;border-radius:10px;user-select:none;-webkit-user-select:none}
+  .bottomnav button[aria-current="page"]{color:var(--ink)}
+  .bottomnav button[aria-current="page"] svg{stroke-width:2.4}
+  .bottomnav button:active{background:var(--soft,color-mix(in srgb,var(--ink) 6%,transparent))}
+  /* no ☰ ficam só Configurações, Recarregar e Sair: as abas principais estão embaixo */
+  header.top.open nav.tabs button:not(.me){display:none}
+  .logfoot{bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+  .appfoot{padding-bottom:12px}
+  .hero h1{font-size:28px}
+}
