@@ -1,6 +1,6 @@
 {
   "name": "transicao",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "App de treino de triatlo do grupo: login, plano, coach com IA, Strava e competição.",
   "scripts": {
