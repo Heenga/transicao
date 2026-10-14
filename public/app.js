@@ -1805,8 +1805,10 @@ function viewDieta(){
     <section class="panel"><div class="ph"><h2>O que você comeu?</h2></div>
       <form id="dietform" class="stack">
         <div class="photo">${S.dietImgUrl ? `<img src="${S.dietImgUrl}" alt="Foto do prato"><button type="button" class="btn ghost sm" data-act="cleardietimg">Trocar foto</button>`
-          : `<label class="photodrop" for="dietimg"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span><b>Tirar foto do prato</b><br><span class="note">O coach identifica os alimentos e estima as porções</span></span></label>`}
-          <input id="dietimg" type="file" accept="image/*" capture="environment" hidden></div>
+          : `<div class="photopick"><label class="photodrop" for="dietimg"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span><b>Tirar foto</b><br><span class="note">abre a câmera</span></span></label>
+             <label class="photodrop" for="dietgal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg><span><b>Escolher da galeria</b><br><span class="note">foto que você já tirou</span></span></label></div>
+             <p class="note" style="margin:6px 0 0">O coach identifica os alimentos e estima as porções.</p>`}
+          <input id="dietimg" type="file" accept="image/*" capture="environment" hidden><input id="dietgal" type="file" accept="image/*" hidden></div>
         <textarea id="diettext" rows="4" placeholder="Opcional com foto. Ex: Café: 2 pães com ovo e café com leite. Almoço: arroz, feijão, frango e salada."></textarea>
         <div class="row"><button class="btn" type="submit" ${S.busy.diet ? "disabled" : ""}>${S.busy.diet ? '<span class="spin"></span> Analisando' : "Analisar"}</button><span class="note">Foto, texto ou os dois. Ex.: foto + "pós-treino, comi tudo".</span></div>
       </form></section>
@@ -2366,7 +2368,7 @@ document.addEventListener("click", e => {
      hidelog: () => { S.showLog = false; render(); },
      clearimg: () => { S.pendingImg = null; render(); },
      exportme: exportMine, exportgroup: exportGroup, reload: reloadAll, stravaon: () => TRI.connectStrava(), stravaoff: async () => { await TRI.disconnectStrava(); flash(S.view, "Strava desconectado.", false); },
-     cleardietimg: () => { S.dietImg = null; if (S.dietImgUrl) URL.revokeObjectURL(S.dietImgUrl); S.dietImgUrl = null; render(); setTimeout(() => $("#dietimg")?.click(), 0); },
+     cleardietimg: () => { S.dietImg = null; if (S.dietImgUrl) URL.revokeObjectURL(S.dietImgUrl); S.dietImgUrl = null; render(); },
      addexrow: () => { $("#l_ex")?.insertAdjacentHTML("beforeend", strengthRow()); },
      ivpush: () => pushToIntervals(),
      ivoff: async () => { await TRI.api("/api/intervals/disconnect", { method: "POST" }).catch(() => {}); TRI.me.intervals = { connected: false }; flash(S.view, "intervals.icu desconectado. Os treinos já enviados continuam lá.", false); },
@@ -2472,7 +2474,7 @@ document.addEventListener("change", async e => {
   if (e.target.name === "l_dor"){ const b = $("#l_dorbox"); if (b) b.hidden = e.target.value !== "Sim"; }
   if (e.target.id === "l_plan" && e.target.value){ const s = plannedFor($("#l_date").value).find(p => p.ref === e.target.value); const m = $("#l_min"); if (s?.min && m && !m.value) m.value = s.min; }
   if (e.target.closest?.("#logform")) updateLogPreview();
-  if (e.target.id === "dietimg" && e.target.files[0]){ S.dietImg = e.target.files[0]; if (S.dietImgUrl) URL.revokeObjectURL(S.dietImgUrl); S.dietImgUrl = URL.createObjectURL(S.dietImg); e.target.value = ""; const t = $("#diettext")?.value; render(); if (t) $("#diettext").value = t; return; }
+  if ((e.target.id === "dietimg" || e.target.id === "dietgal") && e.target.files[0]){ S.dietImg = e.target.files[0]; if (S.dietImgUrl) URL.revokeObjectURL(S.dietImgUrl); S.dietImgUrl = URL.createObjectURL(S.dietImg); e.target.value = ""; const t = $("#diettext")?.value; render(); if (t) $("#diettext").value = t; return; }
   if (e.target.id === "chatimg" && e.target.files[0]){ S.pendingImg = e.target.files[0]; e.target.value = ""; render(); return; }
   const src = e.target.dataset?.src;
   if (!src || !e.target.files.length) return;

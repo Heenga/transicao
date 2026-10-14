@@ -473,3 +473,6 @@ a.brand:active{opacity:.7}
 .fitem > .tag{min-width:84px;justify-content:center}
 .kudo{min-width:52px;justify-content:center}
 .kudo.mine{cursor:default;opacity:.75}
+.photopick{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
+@media (max-width:420px){.photopick{grid-template-columns:1fr}}
+.photopick .photodrop{width:100%;box-sizing:border-box}
