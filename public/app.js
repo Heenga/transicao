@@ -1034,6 +1034,13 @@ function sessMeta(s){
   const br = s.sport === "brick" ? sportMinutes(s) : null;
   return [s.min ? `${s.min} min` : "", br ? `bike ${br.bike} + corrida ${br.run} min` : "", s.dist ? String(s.dist) : "", s.pace ? `pace ${String(s.pace).replace(/^pace\s*/i, "")}` : "", z ? `${z} · ${ZONA_TXT[z]}` : (s.zona || "")].filter(Boolean).join(" · ");
 }
+/** Linha do painel de detalhes, com ? na zona e no pace. */
+function sessMetaTips(s){
+  const z = String(s.zona || "").toUpperCase().match(/Z[1-5]/)?.[0], br = s.sport === "brick" ? sportMinutes(s) : null;
+  const items = [s.min ? `${s.min} min` : "", br ? `bike ${br.bike} + corrida ${br.run} min` : "", s.dist ? esc(s.dist) : "",
+    s.pace ? `pace ${esc(String(s.pace).replace(/^pace\s*/i, ""))} ${gtip("Pace")}` : "", z ? `${z} · ${ZONA_TXT[z]} ${gtip(z)}` : (s.zona ? esc(s.zona) : "")].filter(Boolean);
+  return items.length ? `<div class="note smetatips">${items.join(" · ")}</div>` : "";
+}
 /** Card compacto; o passo a passo abre no painel de detalhes ao tocar. */
 function sessHTML(s, date){
   const sp = s.sport || "other", done = date && isDone(s, date), ref = planRefOf(s), meta = [SPORTS[sp], sessMeta(s)].filter(Boolean).join(" · ");
@@ -1058,8 +1065,9 @@ function sessSheetHTML(){
   return `<div class="sheet-bg" data-closesheet></div>
   <div class="sheet c-${sp}" role="dialog" aria-modal="true" aria-labelledby="sheet_t">
     <div class="sheet-h"><div><div class="eyebrow">${SPORTS[sp]} · ${(t => t.charAt(0).toUpperCase()+t.slice(1))(date.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"short"}))}${done ? " · feito ✓" : ""}</div>
-      <h2 id="sheet_t">${esc(s.titulo || SPORTS[sp])}</h2>${sessMeta(s) ? `<div class="note">${esc(sessMeta(s))}</div>` : ""}</div>
+      <h2 id="sheet_t">${esc(s.titulo || SPORTS[sp])}</h2>${sessMetaTips(s)}</div>
       <button type="button" class="btn ghost sm" data-closesheet aria-label="Fechar">✕</button></div>
+    ${termTips([s.titulo, s.zona, s.pace ? "pace" : "", sp === "brick" ? "brick" : "", ...(s.etapas||[]).map(e => `${e.fase} ${e.desc}`), s.detalhe, s.dica].filter(Boolean).join(" "))}
     ${etapas ? `<h3 class="shh">Passo a passo</h3><ol class="steps">${etapas}</ol>` : ""}
     ${s.sport === "strength" && s.detalhe ? `<p class="d">${esc(s.detalhe)}</p>` : ""}
     ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}
@@ -1433,6 +1441,35 @@ function logPreviewHTML(x){
   if (x.rpe >= 7 && /leve|Regenerativo|Rodagem/.test(x.tipo)) warn.push("Esforço alto para um treino leve. Dias fáceis devem ser realmente fáceis.");
   return `<div class="kv" style="margin:0">${items.map(([k,v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("")}</div>${warn.map(w => `<div class="note warnline">${esc(w)}</div>`).join("")}`;
 }
+/* Glossário: termos técnicos explicados para quem está começando (botão ? preto). */
+const GLOSS = {
+  Z1: "Zona 1 — recuperação. Bem leve, respiração tranquila, esforço 1–2 de 10. Serve para soltar o corpo.",
+  Z2: "Zona 2 — aeróbico leve. Dá para conversar em frases completas, esforço 3–4 de 10. É a base do triatlo: a maior parte do treino deve ser aqui.",
+  Z3: "Zona 3 — moderado. Conversa só em frases curtas, esforço 5–6 de 10. Parecido com o ritmo de uma prova longa.",
+  Z4: "Zona 4 — limiar. Forte e sustentável por cerca de 1 hora, quase sem conseguir falar, esforço 7–8 de 10.",
+  Z5: "Zona 5 — muito forte (VO2máx). Tiros curtos de poucos minutos, esforço 9 de 10, sem conseguir falar.",
+  Pace: "Pace é o ritmo da corrida: quantos minutos você leva para correr 1 km. Ex.: 6:30/km = 6 min e 30 s por quilômetro. Quanto menor, mais rápido.",
+  Brick: "Brick (ou transição) é bike seguida de corrida, sem pausa. Treina a sensação de pernas pesadas ao sair da bike, como na prova.",
+  CSS: "CSS (velocidade crítica de natação) é o ritmo que você aguenta nadando forte por cerca de 30 min. Sai de um teste de 400 m e 200 m e serve de referência para as séries.",
+  FTP: "FTP é a potência (ou esforço) que você aguenta na bike por cerca de 1 hora. Serve de referência para as zonas da bike.",
+  Limiar: "Limiar é o ponto de esforço em que o corpo ainda dá conta de remover o cansaço. Acima dele você cansa rápido. Treinar perto dele melhora a resistência.",
+  "Sweet spot": "Sweet spot é um esforço entre moderado e forte (entre Z3 e Z4): rende muito ganho de resistência na bike sem cansar demais.",
+  Educativos: "Educativos são exercícios de técnica: movimentos isolados ou exagerados (de braço, pernada, respiração) para aprender a nadar ou correr melhor.",
+  Strides: "Strides (acelerações) são tiros curtos de 15–20 s acelerando até quase o máximo, com recuperação completa. Melhoram a passada sem cansar.",
+  Cadência: "Cadência é o ritmo das pernas: pedaladas por minuto (rpm) na bike ou passos por minuto na corrida.",
+  RPE: "Esforço percebido (RPE): nota de 1 a 10 para quão difícil está. 1–2 muito leve, 3–4 confortável, 5–6 moderado, 7–8 forte, 9–10 no limite.",
+  "VO2máx": "VO2máx é a capacidade máxima de usar oxigênio. Treinos de VO2 são tiros bem fortes e curtos (Z5).",
+  Regenerativo: "Regenerativo é um treino bem leve (Z1) só para ajudar a recuperar dos dias fortes.",
+  Longão: "Longão é o treino mais longo da semana, em ritmo leve (Z2). Constrói resistência.",
+  "Pullbuoy": "Pullbuoy é a boia de espuma presa entre as coxas: você nada só com os braços.",
+};
+const GLOSS_RE = [["Z1",/\bZ1\b/i],["Z2",/\bZ2\b/i],["Z3",/\bZ3\b/i],["Z4",/\bZ4\b/i],["Z5",/\bZ5\b/i],["Pace",/\bpace\b|\/km/i],["Brick",/\bbrick\b|transi[çc][ãa]o/i],["CSS",/\bCSS\b/i],["FTP",/\bFTP\b/i],["Limiar",/limiar/i],["Sweet spot",/sweet ?spot/i],["Educativos",/educativ/i],["Strides",/strides?|acelera[çc][õo]es/i],["Cadência",/cad[êe]ncia|\brpm\b/i],["RPE",/\bRPE\b|esfor[çc]o \d/i],["VO2máx",/VO2/i],["Regenerativo",/regenerativ/i],["Longão",/long[ãa]o/i],["Pullbuoy",/pull ?buoy/i]];
+/** Termos técnicos que aparecem no texto, cada um com o seu ? */
+function termTips(text){
+  const found = GLOSS_RE.filter(([, re]) => re.test(text)).map(([k]) => k);
+  return found.length ? `<div class="terms"><span class="note">Termos deste treino:</span>${found.map(k => `<span class="term">${esc(k)} ${qtip(esc(GLOSS[k]))}</span>`).join("")}</div>` : "";
+}
+const gtip = k => GLOSS[k] ? qtip(esc(GLOSS[k])) : "";
 function qtip(text){
   return `<span class="qwrap"><button type="button" class="qtip" aria-label="O que é isso?" aria-expanded="false">?</button><span class="qpop" role="tooltip" hidden>${text}</span></span>`;
 }
@@ -1789,9 +1826,9 @@ function metodoHTML(){
       </div>
       <ul class="tips">
         <li><b>Base piramidal, polarizado perto da prova:</b> 75–80% do tempo fácil. Dias fáceis são realmente fáceis.</li>
-        <li><b>Norueguês adaptado:</b> tiros no limiar controlados (esforço 6–7/10), terminando com sensação de que daria mais.</li>
-        <li><b>Natação:</b> frequência acima de volume, técnica em toda sessão, séries no ritmo CSS.</li>
-        <li><b>Brick</b> semanal (bike → corrida) para a transição.</li>
+        <li><b>Norueguês adaptado:</b> tiros no limiar ${gtip("Limiar")} controlados (esforço 6–7/10), terminando com sensação de que daria mais.</li>
+        <li><b>Natação:</b> frequência acima de volume, técnica em toda sessão, séries no ritmo CSS ${gtip("CSS")}.</li>
+        <li><b>Brick</b> ${gtip("Brick")} semanal (bike → corrida) para a transição.</li>
         <li><b>Força pesada 2x por semana</b> (3–6 repetições) para economia de corrida e prevenção de lesão.</li>
         <li><b>Ciclos 3:1</b> e polimento de 10–14 dias com volume −40 a −60%.</li>
       </ul>
@@ -2010,7 +2047,9 @@ document.addEventListener("click", e => { if ($("header.top").classList.contains
 document.addEventListener("click", e => {
   const qt = e.target.closest(".qtip");
   document.querySelectorAll(".qtip[aria-expanded='true']").forEach(b => { if (b !== qt){ b.setAttribute("aria-expanded","false"); b.nextElementSibling.hidden = true; } });
-  if (qt){ const open = qt.getAttribute("aria-expanded") !== "true"; qt.setAttribute("aria-expanded", String(open)); qt.nextElementSibling.hidden = !open; e.preventDefault(); return; }
+  if (qt){ const open = qt.getAttribute("aria-expanded") !== "true", pop = qt.nextElementSibling; qt.setAttribute("aria-expanded", String(open)); pop.hidden = !open;
+    if (open){ pop.style.transform = ""; const r = pop.getBoundingClientRect(), shift = r.left < 8 ? 8 - r.left : r.right > innerWidth - 8 ? innerWidth - 8 - r.right : 0; if (shift) pop.style.transform = `translateX(calc(-50% + ${shift}px))`; } // não deixa sair da tela
+    e.preventDefault(); return; }
   const g = e.target.closest("[data-go]"); if (g){ go(g.dataset.go); return; }
   const w = e.target.closest("[data-week]"); if (w){ S.week = +w.dataset.week; render(); return; }
   const q = e.target.closest("[data-ask]"); if (q){ sendChat(q.dataset.ask); return; }

@@ -413,3 +413,6 @@ body.sheet-open{overflow:hidden}
   header.top.open nav.tabs button.me{margin-left:0}
   header.top.open .syncbox{flex-basis:100%;justify-content:flex-start;padding-top:8px;border-top:1px solid var(--line)}
 }
+.terms{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:12px;padding:10px;border-radius:10px;background:var(--soft,color-mix(in srgb,var(--ink) 5%,transparent))}
+.terms .term{display:inline-flex;align-items:center;gap:4px;font-weight:600;font-size:13px}
+.smetatips .qwrap{vertical-align:middle}
