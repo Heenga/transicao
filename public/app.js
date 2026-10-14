@@ -1251,8 +1251,8 @@ function checkinHTML(){
     <form class="ci" id="checkin">
       <div class="fld"><label for="ci_sono">Horas de sono</label><input id="ci_sono" type="number" step="0.25" min="0" max="14" value="${esc(v.sono ?? "")}" placeholder="7,5"></div>
       <div class="fld"><label for="ci_score">Sleep score</label><input id="ci_score" type="number" min="0" max="100" value="${esc(v.score ?? "")}" placeholder="0–100"></div>
-      <div class="fld"><label for="ci_qual">Qualidade (1–5)</label><input id="ci_qual" type="number" min="1" max="5" value="${esc(v.qual ?? "")}" placeholder="sem relógio"></div>
-      <div class="fld"><label for="ci_hrv">HRV (ms)</label><input id="ci_hrv" type="number" min="0" max="250" value="${esc(v.hrv ?? "")}" placeholder="opcional"></div>
+      <div class="fld"><label for="ci_qual">Como dormiu (1–5)</label><input id="ci_qual" type="number" min="1" max="5" value="${esc(v.qual ?? "")}" placeholder="1 péssimo · 5 ótimo"><small class="hint">Sua sensação. Útil para quem não tem relógio.</small></div>
+      <div class="fld"><label for="ci_hrv">HRV (ms)</label><small class="hint" style="order:3">Variabilidade da frequência cardíaca medida pelo relógio no sono. Mais alto que o seu normal = mais recuperado.</small><input id="ci_hrv" type="number" min="0" max="250" value="${esc(v.hrv ?? "")}" placeholder="opcional"></div>
       <div class="fld"><label for="ci_bb">Body Battery</label><input id="ci_bb" type="number" min="0" max="100" value="${esc(v.bb ?? "")}" placeholder="opcional"></div>
       <div class="fld"><label for="ci_rhr">FC de repouso</label><input id="ci_rhr" type="number" min="30" max="120" value="${esc(v.rhr ?? "")}" placeholder="opcional"></div>
       <div class="fld"><label for="ci_cans">Cansaço (1–5)</label><input id="ci_cans" type="number" min="1" max="5" value="${esc(v.cans ?? "")}" placeholder="1 = inteiro"></div>
