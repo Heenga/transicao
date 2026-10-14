@@ -33,7 +33,7 @@ export async function requireUser(req: Request): Promise<{ user: User; isAdmin: 
   const { data, error } = await sb.auth.getUser(token);
   if (error || !data.user) return fail("not_granted", "Sessão expirada. Faça login novamente.", 401);
   const { data: m } = await sb.from("members").select("is_admin").eq("user_id", data.user.id).maybeSingle();
-  if (!m) return fail("not_member", "Conta fora do grupo.", 403);
+  if (!m) return fail("not_member", "Essa conta não faz parte do grupo.", 403);
   return { user: data.user, isAdmin: !!m.is_admin };
 }
 

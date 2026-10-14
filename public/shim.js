@@ -20,13 +20,13 @@
     session = s;
     const r = await fetch(path, { ...opts, headers: { "content-type": "application/json", ...(s ? { authorization: "Bearer " + s.access_token } : {}), ...(opts.headers || {}) } });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw { code: j.code || (r.status === 401 ? "not_granted" : "upstream_error"), message: j.message || "Erro de conexão.", status: r.status };
+    if (!r.ok) throw { code: j.code || (r.status === 401 ? "not_granted" : "upstream_error"), message: j.message || "Sem conexão agora. Confira a internet e tente de novo.", status: r.status };
     return j;
   }
 
   // ---------- banco de dados ----------
   const snap = (path, d) => ({ id: path.split("/").pop(), exists: d != null, data: () => (d == null ? undefined : d), metadata: {} });
-  const dbErr = e => ({ code: e?.code === "42501" ? "invalid_argument" : "unavailable", message: e?.message || "Falha no banco." });
+  const dbErr = e => ({ code: e?.code === "42501" ? "invalid_argument" : "unavailable", message: "Não consegui salvar agora." });
   function poll(fn, next, err, ms) {
     let alive = true;
     const tick = async () => { try { const v = await fn(); if (alive) next(v); } catch (e) { if (alive && err) err(e); } };
@@ -110,7 +110,7 @@
       if (opts.onText) opts.onText({ text, delta: text });
       return { text, truncated: res.stop_reason === "max_tokens" };
     }
-    throw { code: "upstream_error", message: "A IA não concluiu a resposta." };
+    throw { code: "upstream_error", message: "O coach não conseguiu terminar a resposta. Tente de novo." };
   }
   sample.json = async (input, opts = {}) => {
     const note = "\n\nResponda APENAS com JSON válido, sem texto antes ou depois.";
@@ -159,7 +159,7 @@
     try { me = await api("/api/me"); }
     catch (e) {
       if (e.code === "not_member" || e.code === "not_granted") { await sb.auth.signOut(); return showAuth(e.code === "not_member" ? "Essa conta não faz parte do grupo." : ""); }
-      return showAuth("Não consegui conectar ao servidor. Tente de novo.");
+      return showAuth("Sem conexão agora. Confira a internet e tente de novo.");
     }
     window.TRI = { api, me, connectStrava, disconnectStrava, logout };
     $("#auth").hidden = true; $("#app").hidden = false; $("#logout").hidden = false;
@@ -174,9 +174,9 @@
     try { cfg = await fetch("/api/config").then(r => r.json()); } catch { cfg = {}; }
     if (cfg.version) {
       const built = cfg.builtAt ? new Date(cfg.builtAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-      $("#appversion").textContent = ["Versão " + cfg.version, cfg.commit, built].filter(Boolean).join(" · ");
+      $("#appversion").textContent = ["Versão " + cfg.version, built ? "atualizada em " + built : ""].filter(Boolean).join(" · "); $("#appversion").title = cfg.commit || ""; // código do commit só no "passar o mouse", para o organizador
     }
-    if (!cfg.supabaseUrl || !window.supabase) { $("#auth").hidden = false; showErr("Configuração do servidor incompleta: confira as variáveis do Supabase no Vercel."); return; }
+    if (!cfg.supabaseUrl || !window.supabase) { $("#auth").hidden = false; showErr("O app está em manutenção agora. Tente de novo em alguns minutos."); return; }
     sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } });
     $("#logout").addEventListener("click", logout);
     $("#authform").addEventListener("submit", async e => {

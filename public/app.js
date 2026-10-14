@@ -332,7 +332,7 @@ function save(name, data){
   queues[name] = (queues[name] || Promise.resolve()).then(() => ref.set({ ...data, _updatedAt: new Date().toISOString() }))
     .then(() => { if (--pending === 0) setSaveState({ k:"ok", t:"Salvo " + new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) }); })
     .catch(e => { pending = Math.max(0, pending-1); console.warn("save", name, e); setSaveState({ k:"err", t:"Erro ao salvar" });
-      flash(S.view, `Não consegui salvar (${e?.code || "erro"}). Recarregue a página e tente de novo.`, true); });
+      flash(S.view, "Não consegui salvar agora. Confira a internet e tente de novo.", true); });
   return queues[name];
 }
 async function exportMine(){
@@ -354,7 +354,7 @@ async function offerDownload(filename, obj){
   const dl = await cap("downloads");
   if (!dl){ flash("dados", "Não consegui gerar o download.", true); return; }
   try { await dl.save({ filename, data: new Blob([JSON.stringify(obj, null, 2)], { type:"application/json" }) }); flash("dados", "Arquivo gerado.", false); }
-  catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") flash("dados", "Não consegui gerar o arquivo (" + (e?.code || "erro") + ").", true); }
+  catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") flash("dados", "Não consegui gerar o arquivo. Tente de novo.", true); }
 }
 /* ---------- competição: resumo público de cada participante (sem dados de saúde) ---------- */
 function streakDays(){
@@ -462,19 +462,6 @@ function saveTeamDoc(recentActs){
 
 /* ---------- Strava ---------- */
 const STRAVA = "Strava";
-function mcpErrText(e){
-  switch (e?.code){
-    case "server_not_connected": return "O Strava ainda não está conectado na sua conta Claude. Adicione em claude.ai → Configurações → Conectores → Strava, depois volte aqui.";
-    case "needs_reauth": return "A conexão com o Strava expirou. Reconecte em claude.ai → Configurações → Conectores.";
-    case "selection_required": return "Você tem mais de uma conexão Strava. Escolha qual usar no aviso que o Claude mostrou e tente de novo.";
-    case "not_in_manifest": case "consent_required": return "O acesso ao Strava foi recusado para esta página. Libere em Permissões do artefato e tente de novo.";
-    case "blocked_by_policy": return "Sua organização bloqueou esse conector.";
-    case "server_unavailable": return "O Strava não respondeu agora. Tente de novo em alguns segundos.";
-    case "not_granted": case "capability_disabled": case "capability_removed": return "Esta visualização não permite conectores. Abra a página pelo claude.ai, logado.";
-    case "tool_error": return "O Strava recusou a consulta: " + (e.message || "erro desconhecido");
-    default: return "Não consegui falar com o Strava (" + (e?.code || "erro") + "). Tente de novo.";
-  }
-}
 function parseStravaPage(res){
   const pl = typeof res.payload === "string" ? (()=>{ try { return JSON.parse(res.payload); } catch { return res.payload; } })() : res.payload;
   const arr = (pl && Array.isArray(pl.activities)) ? pl.activities : findActivityArray(pl);
@@ -677,7 +664,7 @@ function maybeReplan(){
 async function generatePlan(opts = {}){
   if (!S.profile){ if (!opts.auto){ go("dados"); flash("dados","Preencha seu perfil antes de gerar o plano.", true); } return; }
   const sample = await cap("sample");
-  if (!sample){ if (!opts.auto){ flash("plano","O gerador de plano está indisponível agora.", true); render(); } return; }
+  if (!sample){ if (!opts.auto){ flash("plano","O coach está indisponível no momento. Tente mais tarde.", true); render(); } return; }
   if (S.busy.plan) return;
   busy("plan", true); render();
   const { hoje, from, to, treinouHoje, novaSemana, aberta } = planWindow();
@@ -726,9 +713,9 @@ Condicionamento: ${JSON.stringify(fitnessForAI())}`;
     flash("plano", novaSemana ? "Treinos da semana gerados." : opts.auto ? "Treinos restantes da semana reajustados a partir do que você fez." : "Treinos da semana planejados.", false);
     coachNote(true);
   } catch (e) {
-    flash("plano", e?.code === "ai_off" ? "A IA está desligada: falta configurar a chave ANTHROPIC_API_KEY na Vercel." : e?.code === "not_granted" ? "Você precisa permitir que esta página use o Claude para gerar o plano." :
+    flash("plano", e?.code === "ai_off" ? "O coach está indisponível no momento. Tente mais tarde." : e?.code === "not_granted" ? "Sua sessão expirou. Entre de novo." :
       e?.code === "rate_limited" ? "Muitas gerações em sequência. Espere um minuto e tente de novo." :
-      e?.code === "invalid_json" ? "O plano veio incompleto. Tente gerar de novo." : "Não consegui gerar o plano (" + (e?.code || "erro") + ").", true);
+      e?.code === "invalid_json" ? "Os treinos vieram incompletos. Tente de novo." : "Não consegui montar seus treinos agora. Tente de novo em alguns minutos.", true);
   }
   busy("plan", false); render();
 }
@@ -952,7 +939,7 @@ Alimentação: alvos de hoje ${JSON.stringify(dietTargets())}; recentes ${JSON.s
     if (S.chatChangedBody){ S.chat.push({ r:"sys", t:"Queixa registrada no seu perfil." }); S.chatChangedBody = false; }
   } catch (e) {
     bubble.t = e?.text || "";
-    S.chat.push({ r:"sys", t: e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "rate_limited" ? "Muitas mensagens seguidas. Espere um pouco." : e?.code === "cancelled" ? "Resposta interrompida." : "Não consegui responder (" + (e?.code || "erro") + ")." });
+    S.chat.push({ r:"sys", t: e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "rate_limited" ? "Muitas mensagens seguidas. Espere um pouco." : e?.code === "cancelled" ? "Resposta interrompida." : "Não consegui responder agora. Tente de novo." });
   }
   S.chat = S.chat.filter(m => m.r === "sys" || m.t);
   busy("chat", false);
@@ -1017,7 +1004,7 @@ function swapPanelHTML(x, ref, ei){
   return `<div class="swappanel" role="group" aria-label="Alternativas para ${esc(x.nome)}">
     <div class="note">Escolha um substituto com a mesma função:</div>
     <div class="chips">${alts.map(a => `<button type="button" data-swappick="${esc(a)}">${esc(a)}</button>`).join("") || `<span class="note">Sem alternativas prontas para este exercício.</span>`}</div>
-    <div class="row"><button type="button" class="btn ghost sm" data-swapai ${S.swap.loading ? "disabled" : ""}>${S.swap.loading ? '<span class="spin"></span> Buscando' : "Mais opções (IA)"}</button>
+    <div class="row"><button type="button" class="btn ghost sm" data-swapai ${S.swap.loading ? "disabled" : ""}>${S.swap.loading ? '<span class="spin"></span> Buscando' : "Mais opções do coach"}</button>
       <input class="swapcustom" placeholder="Ou digite outro exercício" aria-label="Outro exercício"><button type="button" class="btn ghost sm" data-swapcustom>Usar</button>
       <button type="button" class="btn ghost sm" data-swapclose>Cancelar</button></div>
   </div>`;
@@ -1758,7 +1745,7 @@ Responda só com JSON: {"itens":[{"alimento":"arroz branco","porcao":"150 g","ca
     S.dietImg = null; if (S.dietImgUrl){ URL.revokeObjectURL(S.dietImgUrl); S.dietImgUrl = null; }
     S.msg.dieta = null;
   } catch (e) {
-    flash("dieta", e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "invalid_json" ? "A análise veio incompleta. Tente de novo." : "Não consegui analisar (" + (e?.code || "erro") + ").", true);
+    flash("dieta", e?.code === "not_granted" ? "Sessão expirada. Entre de novo." : e?.code === "invalid_json" ? "A análise veio incompleta. Tente de novo." : "Não consegui analisar agora. Tente de novo.", true);
   }
   busy("diet", false); render();
 }
@@ -1778,7 +1765,7 @@ function viewDieta(){
     <section class="panel"><div class="ph"><h2>O que você comeu?</h2></div>
       <form id="dietform" class="stack">
         <div class="photo">${S.dietImgUrl ? `<img src="${S.dietImgUrl}" alt="Foto do prato"><button type="button" class="btn ghost sm" data-act="cleardietimg">Trocar foto</button>`
-          : `<label class="photodrop" for="dietimg"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span><b>Tirar foto do prato</b><br><span class="note">A IA identifica os alimentos e estima as porções</span></span></label>`}
+          : `<label class="photodrop" for="dietimg"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span><b>Tirar foto do prato</b><br><span class="note">O coach identifica os alimentos e estima as porções</span></span></label>`}
           <input id="dietimg" type="file" accept="image/*" capture="environment" hidden></div>
         <textarea id="diettext" rows="4" placeholder="Opcional com foto. Ex: Café: 2 pães com ovo e café com leite. Almoço: arroz, feijão, frango e salada."></textarea>
         <div class="row"><button class="btn" type="submit" ${S.busy.diet ? "disabled" : ""}>${S.busy.diet ? '<span class="spin"></span> Analisando' : "Analisar"}</button><span class="note">Foto, texto ou os dois. Ex.: foto + "pós-treino, comi tudo".</span></div>
@@ -2078,7 +2065,7 @@ function competitionHTML(team, me){
 function viewOnboarding(){
   return `${countdownHTML(true)}
   <div class="hero onb"><span class="logo-mark lg" style="width:120px;height:120px" aria-hidden="true"></span><div><div class="eyebrow">Primeiro acesso · 1 minuto</div><h1>Monte seu perfil de atleta</h1><p>Com essas respostas, seus treinos e o coach ficam ajustados para você. Depois disso você vai direto para o painel.</p></div></div>
-  ${S.noDb ? `<div class="status err" style="margin-bottom:16px">Não consegui conectar ao banco de dados. Recarregue a página.</div>` : ""}
+  ${S.noDb ? `<div class="status err" style="margin-bottom:16px">Não consegui carregar seus dados. Recarregue a página.</div>` : ""}
   ${msgHTML(S.view)}${S.view !== "dados" ? msgHTML("dados") : ""}
   <div class="grid2" style="margin-top:0">
     <section class="panel"><div class="ph"><h2>Seu perfil</h2></div>${profileFormHTML(true)}</section>
@@ -2091,7 +2078,7 @@ function viewOnboarding(){
 }
 function viewDados(){
   return `<div class="hero"><div><div class="eyebrow">Configurações</div><h1>Perfil, conexões e registros</h1><p>Edite seu cadastro, suas fontes de treino e tudo o que você já informou ao app.</p></div></div>
-  ${S.noDb ? `<div class="status err" style="margin-bottom:16px">Não consegui conectar ao banco de dados. Recarregue a página.</div>` : ""}
+  ${S.noDb ? `<div class="status err" style="margin-bottom:16px">Não consegui carregar seus dados. Recarregue a página.</div>` : ""}
   ${msgHTML("dados")}
   <div class="grid2" style="margin-top:0">
   <section class="panel"><div class="ph"><h2>Perfil de atleta</h2></div>${profileFormHTML(false)}</section>
@@ -2100,8 +2087,8 @@ function viewDados(){
 }
 function dataPanelHTML(){
   return `<section class="panel stack"><div class="ph" style="margin:0"><h2>Seus dados</h2><span class="savestate" data-st="${S.saveState?.k || "idle"}">${esc(S.saveState?.t || "Tudo salvo")}</span></div>
-    <p class="note" style="margin:0">Tudo o que você preenche é salvo na hora na base do app, na sua pasta: perfil, treinos, plano, check-ins, peso, alimentação e conversa. Ninguém do grupo vê seus detalhes; só o organizador do app tem acesso, para backup. No grupo aparece apenas o resumo da semana.</p>
-    <div class="row"><button class="btn ghost" data-act="exportme">Baixar meus dados (.json)</button>
+    <p class="note" style="margin:0">Tudo o que você preenche fica salvo na sua conta na hora: perfil, treinos, plano, check-ins, peso, alimentação e conversas com o coach. Ninguém do grupo vê seus detalhes; no Grupo aparece só o resumo dos seus treinos.</p>
+    <div class="row"><button class="btn ghost" data-act="exportme">Baixar uma cópia dos meus dados</button>
     ${S.isOwner ? `<button class="btn ghost" data-act="exportgroup" ${S.busy.export ? "disabled" : ""}>${S.busy.export ? '<span class="spin"></span> Exportando' : "Exportar dados do grupo"}</button>` : ""}</div></section>`;
 }
 function registeredHTML(){
@@ -2201,11 +2188,11 @@ function intervalsCardHTML(){
       <li>Crie uma conta grátis em <b>intervals.icu</b> (dá para entrar com o Strava).</li>
       <li>Lá, em <b>Settings → Garmin Connect</b>, conecte o Garmin e marque <b>Upload planned workouts</b>.</li>
       <li>Em <b>Settings → Run</b> e <b>Ride</b>, preencha a sua FC máxima (e a de limiar, se souber).</li>
-      <li>No fim de Settings, em <b>Developer Settings</b>, gere a <b>API Key</b> e copie.</li>
+      <li>No fim de Settings, em <b>Developer Settings</b>, gere a sua chave (o site chama de <b>API Key</b>) e copie.</li>
       <li>Cole a chave aqui embaixo e toque em <b>Conectar</b>.</li>
     </ol>
-    <form id="ivform" class="iv-form"><input id="iv_key" placeholder="Cole a API Key aqui" autocomplete="off" spellcheck="false" aria-label="API Key do intervals.icu"><button class="btn" type="submit" ${S.busy.ivconnect ? "disabled" : ""}>${S.busy.ivconnect ? '<span class="spin"></span>' : "Conectar"}</button></form>
-    <p class="note" style="margin:8px 0 0">A chave fica criptografada no servidor. Ninguém do grupo consegue ver.</p></div>`;
+    <form id="ivform" class="iv-form"><input id="iv_key" placeholder="Cole a chave (API Key) aqui" autocomplete="off" spellcheck="false" aria-label="API Key do intervals.icu"><button class="btn" type="submit" ${S.busy.ivconnect ? "disabled" : ""}>${S.busy.ivconnect ? '<span class="spin"></span>' : "Conectar"}</button></form>
+    <p class="note" style="margin:8px 0 0">A chave fica guardada com segurança: ninguém do grupo consegue ver.</p></div>`;
 }
 function connectionsHTML(){
   return `<section class="panel"><div class="ph"><h2>Conexões</h2></div>
@@ -2363,7 +2350,7 @@ document.addEventListener("submit", e => {
     } else flash("dados", "Perfil salvo.", false);
   }
   if (e.target.id === "ivform"){
-    const apiKey = $("#iv_key").value.trim(); if (!apiKey){ flash(S.view, "Cole a API Key do intervals.icu.", true); return; }
+    const apiKey = $("#iv_key").value.trim(); if (!apiKey){ flash(S.view, "Cole a chave (API Key) que você copiou do intervals.icu.", true); return; }
     busy("ivconnect", true); render();
     TRI.api("/api/intervals/connect", { method: "POST", body: JSON.stringify({ apiKey }) })
       .then(r => { TRI.me.intervals = { connected: true, athleteName: r.athleteName }; busy("ivconnect", false); flash(S.view, "intervals.icu conectado! Enviando a semana para o Garmin…", false); pushToIntervals(); })

@@ -13,14 +13,14 @@ export const maxDuration = 300; // geração do plano pode levar mais de 1 minut
 export async function POST(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
-  if (!process.env.ANTHROPIC_API_KEY) return fail("ai_off", "IA ainda não configurada: falta ANTHROPIC_API_KEY no Vercel.", 503);
+  if (!process.env.ANTHROPIC_API_KEY) return fail("ai_off", "O coach está indisponível no momento. Tente mais tarde.", 503);
   if (rateLimited("ai:" + auth.user.id, 40, 10 * 60_000)) return fail("rate_limited", "Muitas mensagens seguidas. Espere alguns minutos.", 429);
 
   let body: any;
-  try { body = await req.json(); } catch { return fail("bad_request", "Requisição inválida."); }
+  try { body = await req.json(); } catch { return fail("bad_request", "Algo deu errado. Tente de novo."); }
   const messages = Array.isArray(body.messages) ? body.messages : null;
-  if (!messages?.length) return fail("bad_request", "Sem mensagens.");
-  if (JSON.stringify(messages).length > 1_500_000) return fail("too_large", "Mensagem grande demais (imagem muito pesada?).", 413);
+  if (!messages?.length) return fail("bad_request", "Escreva uma mensagem para o coach.");
+  if (JSON.stringify(messages).length > 1_500_000) return fail("too_large", "A foto é grande demais. Tente uma foto menor ou um print.", 413);
 
   const tier = body.tier === "quick" ? "quick" : body.tier === "complex" ? "complex" : "default";
   const model = tier === "quick" ? (process.env.AI_MODEL_QUICK || "claude-haiku-5-5") : (process.env.AI_MODEL || "claude-sonnet-5-5");
@@ -40,8 +40,8 @@ export async function POST(req: Request) {
     return json({ content: res.content, stop_reason: res.stop_reason, model: res.model, usage: res.usage });
   } catch (e: any) {
     const status = e?.status || 500;
-    if (status === 429) return fail("rate_limited", "A IA está sobrecarregada. Tente em alguns segundos.", 429);
-    if (status === 401) return fail("ai_off", "Chave da Anthropic inválida. Confira ANTHROPIC_API_KEY.", 503);
-    return fail("upstream_error", "A IA não respondeu. Tente de novo.", 502);
+    if (status === 429) return fail("rate_limited", "O coach está atendendo muita gente agora. Tente em alguns segundos.", 429);
+    if (status === 401) return fail("ai_off", "O coach está indisponível no momento. Tente mais tarde.", 503);
+    return fail("upstream_error", "O coach não respondeu. Tente de novo.", 502);
   }
 }

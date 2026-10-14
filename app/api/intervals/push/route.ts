@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   if (rateLimited("intervals:" + auth.user.id, 30, 10 * 60_000)) return fail("rate_limited", "Muitos envios seguidos. Espere alguns minutos.", 429);
   const cfg = await loadIntervals(auth.user.id);
   if (!cfg) return fail("not_connected", "Conecte o intervals.icu em Configurações.", 400);
-  let body: any; try { body = await req.json(); } catch { return fail("bad_request", "Requisição inválida."); }
+  let body: any; try { body = await req.json(); } catch { return fail("bad_request", "Algo deu errado. Tente de novo."); }
   const events = (Array.isArray(body.events) ? body.events : []).slice(0, 60).map((e: any) => ({
     category: "WORKOUT", external_id: String(e.external_id).slice(0, 120), start_date_local: String(e.start_date_local),
     type: String(e.type || "Run"), name: String(e.name || "Treino").slice(0, 120), description: String(e.description || "").slice(0, 8000),

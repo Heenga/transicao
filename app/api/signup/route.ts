@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   if (rateLimited("signup:" + ip, 8, 10 * 60_000)) return fail("rate_limited", "Muitas tentativas. Espere alguns minutos.", 429);
 
   let body: any;
-  try { body = await req.json(); } catch { return fail("bad_request", "Requisição inválida."); }
+  try { body = await req.json(); } catch { return fail("bad_request", "Algo deu errado. Tente de novo."); }
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
   const code = String(body.code || "").trim();
