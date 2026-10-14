@@ -1271,6 +1271,21 @@ function nextSession(){
 }
 const relDay = off => off === 0 ? "Hoje" : off === 1 ? "Amanhã" : null;
 function agoText(d){ const n = Math.floor((new Date(new Date().toDateString()) - new Date(new Date(d).toDateString()))/864e5); return n === 0 ? "hoje" : n === 1 ? "ontem" : `há ${n} dias`; }
+/* ---------- brincadeira: calorias da semana em copos de chope ---------- */
+const MET = { run: 9.8, bike: 7.5, swim: 7, brick: 8.5, strength: 5, other: 3.5 };
+const KCAL_CHOPE = 125; // copo de chope de 300 ml
+function weekKcal(){
+  const kg = Number(S.profile?.peso) || 75, since = mondayOf(new Date());
+  return Math.round(S.activities.filter(a => new Date(a.date) >= since).reduce((t, a) => t + (a.kcal || (MET[a.sport] ?? 4) * kg * a.mov/3600), 0));
+}
+function beerHTML(){
+  const kcal = weekKcal(), n = Math.floor(kcal / KCAL_CHOPE);
+  const cups = n ? "🍺".repeat(Math.min(n, 24)) + (n > 24 ? ` <span class="mono">+${n-24}</span>` : "") : "";
+  return `<section class="panel beer"><div class="ph"><h2>Cota da cerveja</h2><span class="note">brincadeira da semana</span></div>
+    ${n ? `<p style="margin:0">De acordo com a sua semana (<b>${fmtNum(kcal,0)} kcal</b> gastas treinando), você pode beber <b>${n} copo${n === 1 ? "" : "s"} de chope</b>.</p><div class="cups" aria-label="${n} copos">${cups}</div>`
+        : `<p style="margin:0">${kcal ? `Só ${fmtNum(kcal,0)} kcal até agora: ainda não deu nem um copo.` : "Nenhum treino nesta semana ainda: a cota de chope está zerada."} Bora treinar que a cerveja tá esperando.</p>`}
+    <p class="note" style="margin:8px 0 0">Brincadeira! Cada copo de 300 ml ≈ ${KCAL_CHOPE} kcal. Estimativa pela duração, modalidade e seu peso. Álcool atrapalha a recuperação: hidrate-se com água primeiro.</p></section>`;
+}
 function lastWorkoutHTML(){
   const extra = S.activities.find(x => !isPlanned(x));
   const extraLine = extra ? `<div class="extra-line"><span class="eyebrow">Última atividade fora do plano</span><span>${SPORTS[extra.sport] === "Outro" ? esc(extra.name) : SPORTS[extra.sport]}${extra.dist ? ` · ${fmtDist(extra.sport, extra.dist)}` : ""} · ${fmtDur(extra.mov)} · ${agoText(extra.date)}</span></div>` : "";
@@ -1608,6 +1623,7 @@ function viewPainel(){
   ${msgHTML("painel")}
   ${S.showLog ? `<div style="margin-bottom:16px">${logFormHTML()}</div>` : ""}
   ${highlightsHTML()}
+  ${beerHTML()}
   ${!ckDone ? `<div class="first">${checkinHTML()}</div>${weighCard}` : ""}
 
   <div class="fit">
