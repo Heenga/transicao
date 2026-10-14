@@ -466,3 +466,10 @@ button,a,label,summary,.sessbtn,.cday{touch-action:manipulation;-webkit-tap-high
 .iv-actions{margin-top:12px}
 a.brand{color:inherit;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
 a.brand:active{opacity:.7}
+/* cards do Grupo: mesma estrutura e distâncias sempre no rodapé do card */
+.mate .spark{height:44px;width:100%}
+.mate-foot{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding-top:4px;border-top:1px dashed var(--line)}
+.mate-foot .legend{display:grid;grid-template-columns:repeat(3,auto);justify-content:space-between;gap:6px}
+.fitem > .tag{min-width:84px;justify-content:center}
+.kudo{min-width:52px;justify-content:center}
+.kudo.mine{cursor:default;opacity:.75}

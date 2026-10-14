@@ -574,9 +574,9 @@ RECUPERAÇÃO: sono < 6 h, sleep score < 60, HRV caindo, Body Battery < 40 ou ca
 TREINOS: treino feito sem relógio → registrar_treino (pergunte o esforço 1–10 se faltar). Esforço de treino já sincronizado → avaliar_esforco.
 PESO: se informar o peso, registrar_peso. Comente de forma neutra e ligada ao desempenho; perda acima de ~1% do peso por semana é rápida demais para quem treina: recomende comer mais e procurar nutricionista.
 ALIMENTAÇÃO: quando contar o que come, estime carboidrato, proteína e gordura, compare com os alvos (proteína ~1,6 g/kg; carboidrato 5–8 g/kg conforme o volume do dia), dê 2–3 ajustes práticos com alimentos brasileiros comuns (arroz, feijão, ovos, frango, iogurte, banana, tapioca, pão) e o que comer antes/durante/depois do treino. Chame registrar_alimentacao. Foque em abastecer o treino; nada de dietas restritivas. Objetivo de perda de peso → recomende nutricionista.
-PLANO: use as ferramentas para ver atividades e semanas do plano. Só altere o plano se o atleta pedir ou concordar. Siga o método abaixo em toda recomendação.
-DOR OU DESCONFORTO: não diagnostique. Faça 2–3 perguntas objetivas, uma por vez (onde e qual lado, intensidade 0–10, quando dói, há quanto tempo, se piorou após algum treino). Depois chame registrar_queixa, explique o ajuste em 2–3 frases, reduza a carga na modalidade que agrava (ajustar_dia_do_plano) e monte força de reabilitação progressiva com adicionar_treino_forca. Dor até 3/10 que não piora no dia seguinte é aceitável. Dor aguda, inchaço, estalo, dor em repouso ou piora por mais de 1 semana → fisioterapeuta ou médico do esporte. Em conversas seguintes, pergunte como a queixa evoluiu.
-ACADEMIA sem dor: força específica para triatlo com adicionar_treino_forca.
+PLANO: você mexe nos treinos de verdade pelas ferramentas (ver_treinos, definir_treinos_do_dia, adicionar_treino, remover_treino, mover_treino), usando datas YYYY-MM-DD. Quando o atleta pedir uma mudança (trocar, adicionar, tirar, mudar de dia), FAÇA a alteração na hora e depois confirme em 1–2 frases o que ficou (dia, modalidade, minutos). Se a mudança for arriscada (2 dias fortes seguidos, dor), avise e sugira a versão segura, mas respeite a escolha do atleta. Sessão nova completa: título com a modalidade, minutos, zona, pace na corrida e etapas. Siga o método abaixo em toda recomendação.
+DOR OU DESCONFORTO: não diagnostique. Faça 2–3 perguntas objetivas, uma por vez (onde e qual lado, intensidade 0–10, quando dói, há quanto tempo, se piorou após algum treino). Depois chame registrar_queixa, explique o ajuste em 2–3 frases, reduza a carga na modalidade que agrava (definir_treinos_do_dia) e monte força de reabilitação progressiva com adicionar_treino. Dor até 3/10 que não piora no dia seguinte é aceitável. Dor aguda, inchaço, estalo, dor em repouso ou piora por mais de 1 semana → fisioterapeuta ou médico do esporte. Em conversas seguintes, pergunte como a queixa evoluiu.
+ACADEMIA sem dor: força específica para triatlo com adicionar_treino (sport "strength", com exercicios).
 
 ${METODO}`;
 
@@ -831,6 +831,21 @@ function todaySessions(){
   const d = (w.dias||[]).find(x => x.dia === (new Date().getDay()+6)%7);
   return d ? d.sessoes || [] : [];
 }
+/** Dia do plano numa data (cria semanas/plano se preciso), para o coach mexer pelo chat. */
+function planDayAt(k){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(k))) throw new Error("data inválida, use YYYY-MM-DD");
+  if (!S.plan) S.plan = { start: dayKey(mondayOf(new Date())), inicio: dayKey(new Date()), fim: k, semanas: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), genDay: dayKey(new Date()), basis: recentActIds() };
+  const date = new Date(k + "T12:00:00"), start = new Date(S.plan.start + "T00:00:00"), wi = Math.floor((mondayOf(date) - start) / (7*864e5));
+  if (wi < 0) throw new Error("data antes do início do plano");
+  while (S.plan.semanas.length <= wi) S.plan.semanas.push({ n: S.plan.semanas.length + 1, foco: "", carga: "", dias: Array.from({length:7}, (_, d) => ({ dia: d, sessoes: [] })) });
+  const dia = (date.getDay() + 6) % 7, w = S.plan.semanas[wi];
+  let d = w.dias.find(x => x.dia === dia); if (!d){ d = { dia, sessoes: [] }; w.dias.push(d); }
+  d.sessoes ||= []; return d;
+}
+function planChangedByCoach(k){
+  if (!S.plan.fim || k > S.plan.fim) S.plan.fim = k;
+  S.plan.editedAt = new Date().toISOString(); save("plan", S.plan); S.chatChangedPlan = true;
+}
 const chatTools = [
   { name:"listar_atividades", description:"Lista atividades reais do atleta. Use para responder sobre treinos específicos.",
     inputSchema:{ type:"object", properties:{ sport:{type:"string", enum:["swim","bike","run","all"]}, dias:{type:"integer", description:"últimos N dias"} } },
@@ -839,20 +854,26 @@ const chatTools = [
         .map(a => { const o = { data: dayKey(a.date), categoria: isPlanned(a) ? "treino do plano" : "atividade fora do plano", sport: a.sport, nome: a.name, dist: fmtDist(a.sport, a.dist), tempo: fmtDur(a.mov), fc: a.hr, ritmo: a.sport==="run"?paceRun(a.dist,a.mov):a.sport==="swim"?paceSwim(a.dist,a.mov):speedBike(a.dist,a.mov), esforco: a.rpe, carga: Math.round(loadOf(a)) };
           for (const k of ["tipo","local","cumpriu","feel","clima","watts","cadencia","terreno","series","forca","pre","carbo_g","agua_ml","dor","obs"]) if (a[k] != null && a[k] !== "") o[k] = a[k];
           return o; }); } },
-  { name:"ver_semana_do_plano", description:"Retorna uma semana do plano (1 a 4).",
-    inputSchema:{ type:"object", properties:{ semana:{type:"integer"} }, required:["semana"] },
-    execute: ({ semana }) => S.plan ? (S.plan.semanas[semana-1] || "semana inexistente") : "sem plano gerado" },
-  { name:"ajustar_dia_do_plano", description:"Substitui as sessões de um dia do plano. Use só quando o atleta pedir ou concordar com uma mudança.",
-    inputSchema:{ type:"object", properties:{ semana:{type:"integer"}, dia:{type:"integer", description:"0=segunda ... 6=domingo"},
-      sessoes:{ type:"array", items:{ type:"object", properties:{ sport:{type:"string"}, titulo:{type:"string"}, min:{type:"integer"}, dist:{type:"string"}, zona:{type:"string"}, detalhe:{type:"string"} } } } }, required:["semana","dia","sessoes"] },
-    execute: ({ semana, dia, sessoes }) => {
-      if (!S.plan) throw new Error("sem plano");
-      const w = S.plan.semanas[semana-1]; if (!w) throw new Error("semana inexistente");
-      const d = (w.dias ||= []).find(x => x.dia === dia);
-      if (d) d.sessoes = sessoes; else w.dias.push({ dia, sessoes });
-      save("plan", S.plan); S.chatChangedPlan = true;
-      return "ok, plano atualizado";
-    } },
+  { name:"ver_treinos", description:"Mostra os treinos planejados por data (padrão: de hoje até 7 dias). Cada treino tem um índice dentro do dia.",
+    inputSchema:{ type:"object", properties:{ de:{type:"string", description:"YYYY-MM-DD; omita para hoje"}, dias:{type:"integer"} } },
+    execute: ({ de, dias = 7 }) => { const start = de ? new Date(de + "T12:00:00") : new Date(); const map = planDayMap(S.plan);
+      return Array.from({ length: Math.min(dias, 21) }, (_, i) => dayKey(addDays(start, i))).map(k => ({ data: k, dia: DIAS_NOME[(new Date(k + "T12:00:00").getDay() + 6) % 7], treinos: (map[k] || []).map((x, idx) => ({ indice: idx, sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona, pace: x.pace, feito: isDone(x, new Date(k + "T12:00:00")) })) })); } },
+  { name:"definir_treinos_do_dia", description:"Substitui TODOS os treinos de uma data pelos informados (lista vazia = descanso). Use para trocar o treino do dia (ex.: corrida → natação). Monte a sessão completa: título claro, minutos, zona, pace na corrida e etapas.",
+    inputSchema:{ type:"object", properties:{ data:{type:"string", description:"YYYY-MM-DD"}, sessoes:{ type:"array", items: { type:"object", properties:{ sport:{type:"string", enum:["swim","bike","run","brick","strength"]}, titulo:{type:"string", description:"diz a modalidade e o que é"}, min:{type:"integer"}, dist:{type:"string"}, pace:{type:"string", description:"só corrida/brick, ex 6:30–6:50/km"}, zona:{type:"string", description:"Z1..Z5"}, bike_min:{type:"integer"}, run_min:{type:"integer"},
+        etapas:{ type:"array", items:{ type:"object", properties:{ fase:{type:"string"}, min:{type:"integer"}, desc:{type:"string"} } } }, dica:{type:"string"},
+        exercicios:{ type:"array", items:{ type:"object", properties:{ nome:{type:"string"}, series:{type:"integer"}, reps:{type:"string"}, carga:{type:"string"}, obs:{type:"string"} }, required:["nome"] } } }, required:["sport","titulo","min"] } } }, required:["data","sessoes"] },
+    execute: ({ data, sessoes }) => { const d = planDayAt(data); d.sessoes = (sessoes || []).map(x => ({ ...x, movido: true })); planChangedByCoach(data); return `ok: ${data} agora tem ${d.sessoes.length} treino(s)`; } },
+  { name:"adicionar_treino", description:"Adiciona um treino numa data, mantendo os que já existem (inclui força/academia).",
+    inputSchema:{ type:"object", properties:{ data:{type:"string", description:"YYYY-MM-DD"}, sessao: { type:"object", properties:{ sport:{type:"string", enum:["swim","bike","run","brick","strength"]}, titulo:{type:"string", description:"diz a modalidade e o que é"}, min:{type:"integer"}, dist:{type:"string"}, pace:{type:"string", description:"só corrida/brick, ex 6:30–6:50/km"}, zona:{type:"string", description:"Z1..Z5"}, bike_min:{type:"integer"}, run_min:{type:"integer"},
+        etapas:{ type:"array", items:{ type:"object", properties:{ fase:{type:"string"}, min:{type:"integer"}, desc:{type:"string"} } } }, dica:{type:"string"},
+        exercicios:{ type:"array", items:{ type:"object", properties:{ nome:{type:"string"}, series:{type:"integer"}, reps:{type:"string"}, carga:{type:"string"}, obs:{type:"string"} }, required:["nome"] } } }, required:["sport","titulo","min"] } }, required:["data","sessao"] },
+    execute: ({ data, sessao }) => { const d = planDayAt(data); d.sessoes = [...d.sessoes.filter(x => x.sport !== "rest"), { ...sessao, movido: true }]; planChangedByCoach(data); return `ok: treino adicionado em ${data}`; } },
+  { name:"remover_treino", description:"Remove um treino de uma data (use o índice de ver_treinos).",
+    inputSchema:{ type:"object", properties:{ data:{type:"string"}, indice:{type:"integer"} }, required:["data","indice"] },
+    execute: ({ data, indice }) => { const d = planDayAt(data); if (!d.sessoes[indice]) throw new Error("treino não encontrado nessa data"); const [x] = d.sessoes.splice(indice, 1); planChangedByCoach(data); return `ok: removido ${x.titulo}`; } },
+  { name:"mover_treino", description:"Move um treino de uma data para outra.",
+    inputSchema:{ type:"object", properties:{ de:{type:"string"}, indice:{type:"integer"}, para:{type:"string"} }, required:["de","indice","para"] },
+    execute: ({ de, indice, para }) => { const a = planDayAt(de), [x] = a.sessoes.splice(indice, 1); if (!x) throw new Error("treino não encontrado nessa data"); const b = planDayAt(para); b.sessoes = [...b.sessoes.filter(y => y.sport !== "rest"), { ...x, movido: true }]; planChangedByCoach(para); return `ok: ${x.titulo} movido para ${para}`; } },
   { name:"registrar_queixa", description:"Registra ou atualiza uma dor/desconforto relatado pelo atleta, depois de perguntar os detalhes.",
     inputSchema:{ type:"object", properties:{ local:{type:"string", description:"ex: tendão de Aquiles direito"}, intensidade:{type:"integer", description:"0 a 10"},
       quando:{type:"string", description:"quando dói: início do treino, durante, depois, manhã seguinte, ao subir escada…"}, desde:{type:"string"}, agrava:{type:"string", description:"modalidades ou movimentos que pioram"}, obs:{type:"string"} }, required:["local","intensidade"] },
@@ -864,18 +885,6 @@ const chatTools = [
       else list.push({ ...entry, id: "q" + Date.now(), historico: [{ data: entry.data, intensidade: q.intensidade }] });
       save("profile", S.profile); S.chatChangedBody = true;
       return "registrado";
-    } },
-  { name:"adicionar_treino_forca", description:"Adiciona uma sessão de força/academia ao plano num dia específico (mantém as outras sessões do dia).",
-    inputSchema:{ type:"object", properties:{ semana:{type:"integer"}, dia:{type:"integer", description:"0=segunda ... 6=domingo"}, titulo:{type:"string"}, min:{type:"integer"}, detalhe:{type:"string"},
-      exercicios:{ type:"array", items:{ type:"object", properties:{ nome:{type:"string"}, series:{type:"integer"}, reps:{type:"string"}, carga:{type:"string"}, obs:{type:"string"} }, required:["nome"] } } }, required:["semana","dia","titulo","exercicios"] },
-    execute: ({ semana, dia, titulo, min, detalhe, exercicios }) => {
-      if (!S.plan) throw new Error("sem plano gerado; peça ao atleta para gerar o plano primeiro");
-      const w = S.plan.semanas[semana-1]; if (!w) throw new Error("semana inexistente");
-      let d = (w.dias ||= []).find(x => x.dia === dia); if (!d){ d = { dia, sessoes:[] }; w.dias.push(d); }
-      d.sessoes = (d.sessoes||[]).filter(s => s.sport !== "rest");
-      d.sessoes.push({ sport:"strength", titulo, min: min || 40, detalhe: detalhe || "", exercicios });
-      save("plan", S.plan); S.chatChangedPlan = true;
-      return "sessão adicionada";
     } },
   { name:"registrar_recuperacao", description:"Salva dados de recuperação que o atleta informou (sleep score, horas de sono, Body Battery, HRV, FC de repouso, estresse, cansaço). Use sempre que ele mandar esses números, por texto ou print.",
     inputSchema:{ type:"object", properties:{ data:{type:"string", description:"YYYY-MM-DD; omita para hoje"}, sono:{type:"number", description:"horas"}, score:{type:"integer", description:"sleep score 0-100"},
@@ -913,7 +922,7 @@ async function sendChat(text){
 Prova: ${JSON.stringify(raceForAI())} · fase ${JSON.stringify(phaseFor(daysToRace()))} · nível ${athleteTier()}
 Atleta: ${JSON.stringify(profileForAI())}
 Histórico: ${JSON.stringify(summaryForAI())}
-Plano: ${S.plan ? `fase ${S.plan.fase}, aderência ${adherence() ?? "—"}%. Hoje: ${JSON.stringify(todaySessions().map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona })))}` : "nenhum plano gerado ainda"}
+Hoje é ${dayKey(new Date())}. Plano: ${S.plan ? `fase ${S.plan.fase || "—"}, aderência ${adherence() ?? "—"}%. Próximos 7 dias: ${JSON.stringify(Array.from({length:7}, (_, i) => dayKey(addDays(new Date(), i))).map(k => [k, (planDayMap(S.plan)[k] || []).map(x => `${SPORTS[x.sport]} ${x.min || ""}min: ${x.titulo}`)]).filter(([, v]) => v.length))}` : "nenhum plano gerado ainda"}
 Queixas: ${JSON.stringify(complaintsForAI())}
 Testes de nivelamento: ${JSON.stringify(testsForAI())}
 Condicionamento: ${JSON.stringify(fitnessForAI())}
@@ -2021,7 +2030,7 @@ const BOARDS = [
 function miniWeeks(t){
   const ws = t.weeks12 || []; if (!ws.length) return "";
   const tot = ws.map(w => w.s + w.b + w.r + w.o), max = Math.max(60, ...tot), W = 240, H = 44, bw = W/ws.length;
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Minutos por semana nas últimas 12 semanas">${ws.map((w,i) => {
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Minutos por semana nas últimas 12 semanas"><line x1="0" y1="${H-1}" x2="${W}" y2="${H-1}" stroke="var(--line)" stroke-width="2"/>${ws.map((w,i) => {
     let y = H; return [["s","swim"],["b","bike"],["r","run"],["o","muted"]].map(([k,c]) => { const h = w[k]/max*(H-4); y -= h; return h > 0 ? `<rect x="${(i*bw+1.5).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--${c})"/>` : ""; }).join("") + `<title>${tot[i]} min</title>`; }).join("")}</svg>`;
 }
 function competitionHTML(team, me){
@@ -2049,16 +2058,18 @@ function competitionHTML(team, me){
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4)/t.forma4*100).toFixed(1) : null;
     return `<article class="mate${t.__id === me ? " me" : ""}">
       <div class="row" style="justify-content:space-between"><h3>${esc(t.nick)}${t.__id === me ? ' <span class="note">(você)</span>' : ""}</h3><span class="mono">${rankStarted() ? t.points ?? 0 : 0} pts</span></div>
-      <div class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : ""].filter(Boolean).join(" · ")}</div>
+      <div class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : ""].filter(Boolean).join(" · ") || "Nenhum treino contado ainda"}</div>
       <div class="kv" style="margin:0"><div><span>Condicionamento</span><b>${t.forma != null ? fmtNum(t.forma,1) : "—"}${ev != null ? ` <small class="delta ${ev >= 0 ? "good" : "bad"}">${ev >= 0 ? "▲" : "▼"}${Math.abs(ev)}%</small>` : ""}</b></div><div><span>Semana</span><b>${fmtNum(w.hours||0,1)} h · ${w.sessions ?? 0} treinos</b></div></div>
-      ${miniWeeks(t)}
-      <div class="legend"><span class="c-swim">${fmtNum(w.swim_m||0,0)} m</span><span class="c-bike">${fmtNum(w.bike_km||0,1)} km</span><span class="c-run">${fmtNum(w.run_km||0,1)} km</span></div>
-      ${(t.badges||[]).length ? `<div class="badges">${t.badges.map(b => `<span class="badge" title="${esc(b.d)}">${esc(b.t)}</span>`).join("")}</div>` : ""}
+      ${miniWeeks(t) || `<svg class="spark" viewBox="0 0 240 44" preserveAspectRatio="none" aria-hidden="true"><line x1="0" y1="43" x2="240" y2="43" stroke="var(--line)" stroke-width="2"/></svg>`}
+      <div class="mate-foot">
+        <div class="legend"><span class="c-swim">Natação ${fmtNum(w.swim_m||0,0)} m</span><span class="c-bike">Bike ${fmtNum(w.bike_km||0,1)} km</span><span class="c-run">Corrida ${fmtNum(w.run_km||0,1)} km</span></div>
+        ${(t.badges||[]).length ? `<div class="badges">${t.badges.map(b => `<span class="badge" title="${esc(b.d)}">${esc(b.t)}</span>`).join("")}</div>` : ""}
+      </div>
     </article>`; }).join("")}</div>
   <section class="panel" style="margin-top:16px"><div class="ph"><h2>Últimos treinos do grupo</h2><span class="note">dê um aplauso para incentivar</span></div>
     ${feed.length ? `<div class="feed">${feed.map(f => { const key = `${f.uid}_${f.id}`.replace(/[^A-Za-z0-9_-]/g, ""), n = kudosCount(key);
       return `<div class="fitem"><span class="tag c-${f.sport}">${SPORTS[f.sport]}</span><div class="ftext"><b>${esc(f.nick)}</b> ${verb[f.sport] || "treinou"}${f.dist ? ` ${fmtDist(f.sport, f.dist)}` : ""} em ${fmtDur(f.mov)}${f.tipo ? ` · ${esc(f.tipo)}` : ""}<div class="note">${agoText(f.date)}</div></div>
-      ${f.uid !== me ? `<button class="btn ghost sm kudo${gave(key) ? " on" : ""}" data-kudo="${key}" aria-pressed="${gave(key)}">👏 ${n || ""}</button>` : `<span class="note mono">👏 ${n}</span>`}</div>`; }).join("")}</div>`
+      ${f.uid !== me ? `<button class="btn ghost sm kudo${gave(key) ? " on" : ""}" data-kudo="${key}" aria-pressed="${gave(key)}">👏 ${n || ""}</button>` : `<span class="btn ghost sm kudo mine" title="Aplausos que você recebeu">👏 ${n}</span>`}</div>`; }).join("")}</div>`
       : `<p class="note" style="margin:0">Os treinos aparecem aqui quando alguém sincroniza ou registra.</p>`}
   </section>`;
 }
