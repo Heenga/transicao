@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const code = String(body.code || "").trim();
 
   if (!/^[a-z0-9._]{3,20}$/.test(username)) return fail("bad_username", "Usuário deve ter 3 a 20 caracteres: letras minúsculas, números, ponto ou _.");
-  if (password.length < 8) return fail("weak_password", "A senha precisa ter pelo menos 8 caracteres.");
+  if (password.length < 6) return fail("weak_password", "A senha precisa ter pelo menos 4 caracteres.");
   if (code !== env("GROUP_INVITE_CODE")) return fail("bad_code", "Código do grupo incorreto. Peça ao organizador.", 403);
 
   const sb = supabaseAdmin();

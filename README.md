@@ -65,7 +65,7 @@ Onde ficam os dados: **Table Editor → documents**. Cada linha é um assunto de
 
 ## Passo 5 — Primeiro acesso
 
-1. Abra a URL → **Criar conta** → usuário `henrique`, senha (8+ caracteres) e o código do grupo.
+1. Abra a URL → **Criar conta** → usuário `henrique`, senha (4+ caracteres, pode ser só números) e o código do grupo.
 2. Faça o cadastro de atleta → **Configurações → Conexões → Conectar meu Strava**.
 3. Mande para os amigos: o link + o código do grupo. Cada um cria a própria conta.
 

@@ -10,6 +10,8 @@
   "use strict";
   const $ = s => document.querySelector(s);
   const USER_DOMAIN = "users.transicao.app";
+  // O Supabase exige 6+ caracteres; senhas curtas (ex.: PIN de 4 números) ganham um sufixo fixo.
+  const authPass = p => p.length < 6 ? p + "#transicao" : p;
   let sb = null, session = null, me = null;
 
   // ---------- chamadas ao servidor ----------
@@ -167,20 +169,21 @@
   async function logout() { await sb.auth.signOut(); location.href = "/"; }
 
   async function init() {
+    document.querySelectorAll("[data-authmode]").forEach(b => b.addEventListener("click", () => setMode(b.dataset.authmode)));
     let cfg;
     try { cfg = await fetch("/api/config").then(r => r.json()); } catch { cfg = {}; }
     if (!cfg.supabaseUrl || !window.supabase) { $("#auth").hidden = false; showErr("Configuração do servidor incompleta: confira as variáveis do Supabase no Vercel."); return; }
     sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } });
-    document.querySelectorAll("[data-authmode]").forEach(b => b.addEventListener("click", () => setMode(b.dataset.authmode)));
     $("#logout").addEventListener("click", logout);
     $("#authform").addEventListener("submit", async e => {
       e.preventDefault();
       const mode = $("#authform").dataset.mode || "login";
-      const username = $("#auth_user").value.trim().toLowerCase(), password = $("#auth_pass").value;
+      const username = $("#auth_user").value.trim().toLowerCase(), raw = $("#auth_pass").value, password = authPass(raw);
       const btn = $("#auth_submit"); btn.disabled = true; showErr("");
       try {
         if (mode === "signup") {
-          if (password !== $("#auth_pass2").value) throw { message: "As senhas não conferem." };
+          if (raw.length < 4) throw { message: "A senha precisa ter pelo menos 4 caracteres." };
+          if (raw !== $("#auth_pass2").value) throw { message: "As senhas não conferem." };
           await api("/api/signup", { method: "POST", body: JSON.stringify({ username, password, code: $("#auth_code").value.trim() }) });
         }
         const { error } = await sb.auth.signInWithPassword({ email: `${username}@${USER_DOMAIN}`, password });

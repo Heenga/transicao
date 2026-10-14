@@ -3,4 +3,8 @@
 .authcard h1{font-size:34px}
 .authcard form{width:100%}
 .authcard .btn[type=submit]{width:100%;justify-content:center;padding:13px}
-.authcard .weektabs{margin-top:4px}
+.authseg{display:grid;grid-template-columns:1fr 1fr;width:100%;margin-top:4px;padding:4px;gap:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.authseg button{font:600 14px/1 var(--body);min-height:44px;padding:0 12px;border:0;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.authseg button:hover{color:var(--ink)}
+.authseg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.authseg button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
