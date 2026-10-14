@@ -401,3 +401,15 @@ body.sheet-open{overflow:hidden}
 @media (max-width:520px){.sheet{left:0;right:0;top:auto;bottom:0;transform:none;width:auto;max-height:85vh;border-radius:16px 16px 0 0;padding-bottom:calc(22px + env(safe-area-inset-bottom,0px))}}
 .beer{margin-bottom:16px}
 .beer .cups{font-size:24px;line-height:1.3;letter-spacing:2px;margin-top:10px;word-break:break-all}
+.menubtn{display:none}
+@media (max-width:720px){
+  header.top .wrap{gap:10px;padding-block:10px}
+  header.top .brand{font-size:16px}
+  .menubtn{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;width:42px;height:42px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+  header.top:not(.open) nav.tabs, header.top:not(.open) .syncbox{display:none}
+  header.top.open{background:var(--bg)}
+  header.top.open nav.tabs{flex-basis:100%;flex-direction:column;align-items:stretch;gap:2px;margin:4px 0 0}
+  header.top.open nav.tabs button{text-align:left;padding:12px;font-size:15px}
+  header.top.open nav.tabs button.me{margin-left:0}
+  header.top.open .syncbox{flex-basis:100%;justify-content:flex-start;padding-top:8px;border-top:1px solid var(--line)}
+}

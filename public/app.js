@@ -1271,7 +1271,7 @@ function nextSession(){
 }
 const relDay = off => off === 0 ? "Hoje" : off === 1 ? "Amanhã" : null;
 function agoText(d){ const n = Math.floor((new Date(new Date().toDateString()) - new Date(new Date(d).toDateString()))/864e5); return n === 0 ? "hoje" : n === 1 ? "ontem" : `há ${n} dias`; }
-/* ---------- brincadeira: calorias da semana em copos de chope ---------- */
+/* ---------- calorias da semana em copos de chope ---------- */
 const MET = { run: 9.8, bike: 7.5, swim: 7, brick: 8.5, strength: 5, other: 3.5 };
 const KCAL_CHOPE = 125; // copo de chope de 300 ml
 function weekKcal(){
@@ -1281,10 +1281,10 @@ function weekKcal(){
 function beerHTML(){
   const kcal = weekKcal(), n = Math.floor(kcal / KCAL_CHOPE);
   const cups = n ? "🍺".repeat(Math.min(n, 24)) + (n > 24 ? ` <span class="mono">+${n-24}</span>` : "") : "";
-  return `<section class="panel beer"><div class="ph"><h2>Cota da cerveja</h2><span class="note">brincadeira da semana</span></div>
+  return `<section class="panel beer"><div class="ph"><h2>Cota da cerveja</h2><span class="note">semana atual</span></div>
     ${n ? `<p style="margin:0">De acordo com a sua semana (<b>${fmtNum(kcal,0)} kcal</b> gastas treinando), você pode beber <b>${n} copo${n === 1 ? "" : "s"} de chope</b>.</p><div class="cups" aria-label="${n} copos">${cups}</div>`
         : `<p style="margin:0">${kcal ? `Só ${fmtNum(kcal,0)} kcal até agora: ainda não deu nem um copo.` : "Nenhum treino nesta semana ainda: a cota de chope está zerada."} Bora treinar que a cerveja tá esperando.</p>`}
-    <p class="note" style="margin:8px 0 0">Brincadeira! Cada copo de 300 ml ≈ ${KCAL_CHOPE} kcal. Estimativa pela duração, modalidade e seu peso. Álcool atrapalha a recuperação: hidrate-se com água primeiro.</p></section>`;
+    <p class="note" style="margin:8px 0 0">1 copo de chope (300 ml) ≈ ${KCAL_CHOPE} kcal. Calorias estimadas pela duração, modalidade e seu peso.</p></section>`;
 }
 function lastWorkoutHTML(){
   const extra = S.activities.find(x => !isPlanned(x));
@@ -1968,7 +1968,7 @@ function render(){
   const hadFocus = document.activeElement?.id === "chatin";
   const y = window.scrollY;
   const onboarding = S.ready && !S.profile;
-  $("#tabs").hidden = !S.ready || onboarding;
+  $("#tabs").hidden = !S.ready || onboarding; $("#menubtn").hidden = $("#tabs").hidden;
   const rb = document.querySelector(".reloadbtn"); if (rb){ rb.hidden = !S.ready || !S.db; rb.disabled = !!S.busy.reload; }
   app.innerHTML = !S.ready ? app.innerHTML : onboarding ? viewOnboarding() : ({ painel:viewPainel, treinos:viewTreinos, coach:viewCoach, dieta:viewDieta, equipe:viewEquipe, dados:viewDados })[S.view]();
   let sh = $("#sheet"); if (!sh){ sh = document.createElement("div"); sh.id = "sheet"; document.body.append(sh); }
@@ -1992,7 +1992,11 @@ function bgRender(prev, next){
 }
 
 /* ---------- eventos ---------- */
-$("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) go(b.dataset.v); });
+$("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b){ setMenu(false); go(b.dataset.v); } });
+/* menu do celular: header compacto (logo + nome) e ☰ que abre abas, Recarregar e Sair */
+function setMenu(open){ const h = $("header.top"); h.classList.toggle("open", open); $("#menubtn").setAttribute("aria-expanded", String(open)); $("#menubtn").setAttribute("aria-label", open ? "Fechar menu" : "Abrir menu"); }
+$("#menubtn").addEventListener("click", () => setMenu(!$("header.top").classList.contains("open")));
+document.addEventListener("click", e => { if ($("header.top").classList.contains("open") && !e.target.closest("header.top")) setMenu(false); });
 document.addEventListener("click", e => {
   const qt = e.target.closest(".qtip");
   document.querySelectorAll(".qtip[aria-expanded='true']").forEach(b => { if (b !== qt){ b.setAttribute("aria-expanded","false"); b.nextElementSibling.hidden = true; } });
