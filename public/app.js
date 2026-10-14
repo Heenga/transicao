@@ -411,7 +411,7 @@ function computeBadges(){
   return b;
 }
 const PERIODS = { dia:"Hoje", semana:"Semana", mes:"Mês", periodo:"Todo o período" };
-const RANK_START = "2026-10-15"; // o ranking só conta treinos a partir deste dia
+const RANK_START = "2026-10-14"; // a competição (ranking e cards do Grupo) só conta treinos a partir deste dia
 const rankStarted = () => dayKey(new Date()) >= RANK_START;
 function periodStart(k){
   const t = new Date(new Date().toDateString()), min = new Date(RANK_START + "T00:00:00");
@@ -436,6 +436,12 @@ function periodStats(){
 }
 function saveTeam(){
   if (!S.db || !S.uid || !S.profile) return;
+  // Tudo o que vai para o Grupo é calculado só com treinos a partir de RANK_START (o histórico pessoal não entra na competição)
+  const all = S.activities, recent = all.slice(0, 6);
+  S.activities = all.filter(a => dayKey(a.date) >= RANK_START);
+  try { saveTeamDoc(recent); } finally { S.activities = all; }
+}
+function saveTeamDoc(recentActs){
   const w = weeklyBuckets(1)[0], w12 = weeklyBuckets(12), monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const month = sp => S.activities.filter(a => a.sport === sp && new Date(a.date) >= monthStart).reduce((s,a)=>s+a.dist,0);
   const hours = (w.swim.t + w.bike.t + w.run.t + w.other.t)/3600, sessions = w.swim.c + w.bike.c + w.run.c + w.other.c;
@@ -446,9 +452,9 @@ function saveTeam(){
     month: { swim_m: Math.round(month("swim")), bike_km: +(month("bike")/1000).toFixed(1), run_km: +(month("run")/1000).toFixed(1) },
     weeks12: w12.map(x => ({ s: Math.round(x.swim.t/60), b: Math.round(x.bike.t/60), r: Math.round(x.run.t/60), o: Math.round(x.other.t/60) })),
     points: 0, // preenchido abaixo com os pontos da semana contados a partir de RANK_START
-    forma: fit && dataQuality().enough ? +score(fit.at(-1).ctl).toFixed(1) : null, forma4: fit && dataQuality().enough ? +score(fit[Math.max(0, fit.length-29)].ctl).toFixed(1) : null,
+    forma: fit?.length ? +score(fit.at(-1).ctl).toFixed(1) : 0, forma4: null, since: RANK_START,
     streakDays: streakDays(), streakWeeks: streakWeeks(), adherence: adh, badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
-    recent: S.activities.slice(0, 6).map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
+    recent: recentActs.map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
     periods: periodStats(), updatedAt: new Date().toISOString() };
   doc.points = doc.periods.semana.points;
   S.db.collection("team").doc(S.uid).set(doc).catch(e => console.warn("team", e));
@@ -746,7 +752,8 @@ function adherence(){
   let due = 0, done = 0; const today = new Date(); today.setHours(23,59,59);
   S.plan.semanas.forEach((w, wi) => (w.dias||[]).forEach(d => {
     const date = planDate(wi, d.dia); if (date > today || (S.plan.inicio && dayKey(date) < S.plan.inicio)) return;
-    (d.sessoes||[]).forEach(s => { if (s.sport === "rest") return; due++; if (isDone(s, date)) done++; });
+    const isToday = dayKey(date) === dayKey(new Date());
+    (d.sessoes||[]).forEach(s => { if (s.sport === "rest") return; const ok = isDone(s, date); if (isToday && !ok) return; due++; if (ok) done++; }); // hoje só conta se já foi feito
   }));
   return due ? Math.round(done/due*100) : null;
 }
@@ -1835,6 +1842,8 @@ function miniWeeks(t){
     let y = H; return [["s","swim"],["b","bike"],["r","run"],["o","muted"]].map(([k,c]) => { const h = w[k]/max*(H-4); y -= h; return h > 0 ? `<rect x="${(i*bw+1.5).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--${c})"/>` : ""; }).join("") + `<title>${tot[i]} min</title>`; }).join("")}</svg>`;
 }
 function competitionHTML(team, me){
+  // cards de quem ainda não abriu esta versão vêm com histórico antigo: mostram zero até a pessoa abrir o app
+  team = team.map(t => t.since === RANK_START ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null });
   const b0 = BOARDS.find(b => b.k === (S.board || "points")) || BOARDS[0];
   const board = rankStarted() ? b0 : { ...b0, v: () => 0 }; // antes do início, ninguém pontua
   const ranked = team.slice().sort((a,b) => board.v(b) - board.v(a));
