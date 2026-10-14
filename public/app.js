@@ -302,7 +302,7 @@ function sportStats(sport, days = 28){
 const DIAS_NOME = ["seg","ter","qua","qui","sex","sáb","dom"];
 function profileForAI(){
   const p = S.profile || {};
-  const out = { apelido: p.nick, nivel: p.level, peso_kg: p.peso, altura_cm: p.altura, horas_semana: p.hours, piscina: p.pool,
+  const out = { apelido: p.nick, peso_kg: p.peso, altura_cm: p.altura, horas_semana: p.hours, piscina: p.pool,
     dias_disponiveis: Array.isArray(p.days) ? p.days.map(d => DIAS_NOME[d]).join(",") : undefined,
     ponto_fraco: p.fraco, rolo: p.rolo, corrida_onde: p.corre, por_dia: p.porDia, fds_tudo: p.fds };
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v != null && v !== ""));
@@ -441,7 +441,7 @@ function saveTeam(){
   const hours = (w.swim.t + w.bike.t + w.run.t + w.other.t)/3600, sessions = w.swim.c + w.bike.c + w.run.c + w.other.c;
   const adh = adherence();
   const fit = S.activities.length ? fitnessSeries(42) : null;
-  const doc = { nick: S.profile.nick || "Atleta", level: S.profile.level || "",
+  const doc = { nick: S.profile.nick || "Atleta",
     week: { swim_m: Math.round(w.swim.d), bike_km: +(w.bike.d/1000).toFixed(1), run_km: +(w.run.d/1000).toFixed(1), hours: +hours.toFixed(1), sessions },
     month: { swim_m: Math.round(month("swim")), bike_km: +(month("bike")/1000).toFixed(1), run_km: +(month("run")/1000).toFixed(1) },
     weeks12: w12.map(x => ({ s: Math.round(x.swim.t/60), b: Math.round(x.bike.t/60), r: Math.round(x.run.t/60), o: Math.round(x.other.t/60) })),
@@ -528,10 +528,12 @@ function phaseFor(days){
   if (w <= 16) return { fase:"Construção", nota:"aumentar limiar e VO2, manter o volume aeróbico" };
   return { fase:"Base", nota:"volume aeróbico, técnica de natação, força pesada, pouco trabalho forte" };
 }
+/** Nível no método, sem perguntar ao atleta: horas disponíveis + condicionamento medido nos treinos. */
 function athleteTier(){
-  const h = Number(S.profile?.hours) || 6, lv = S.profile?.level || "iniciante";
-  if (lv === "iniciante" || h < 6) return "A";
-  if (lv === "avançado" && h >= 10) return "C";
+  const h = Number(S.profile?.hours) || 6;
+  const ctl = dataQuality().enough ? score(fitnessSeries(1).at(-1)?.ctl || 0) : null;
+  if (h < 6 || (ctl != null && ctl < 20)) return "A";
+  if (h >= 10 && ctl != null && ctl >= 45) return "C";
   return "B";
 }
 const METODO = `MÉTODO DE TREINO DO APP (siga à risca)
@@ -786,7 +788,7 @@ function changeSentence(r){
   return { t: r.k, d: `${verb} de ${r.f(r.a)} para ${r.f(r.b)} (${pct > 0 ? "+" : "−"}${fmtNum(Math.abs(pct),0)}%)`, k: better ? "bom" : "at" };
 }
 function coachReadHTML(p, rows){
-  const perfil = [p.level ? `Atleta ${p.level}` : "Atleta", p.peso ? `${fmtNum(p.peso,1)} kg` : null, p.hours ? `${fmtNum(p.hours,1)} h/semana disponíveis` : null, p.fraco && p.fraco !== "Nenhum" ? `ponto fraco: ${p.fraco.toLowerCase()}` : null].filter(Boolean).join(" · ");
+  const perfil = ["Atleta", p.peso ? `${fmtNum(p.peso,1)} kg` : null, p.hours ? `${fmtNum(p.hours,1)} h/semana disponíveis` : null, p.fraco && p.fraco !== "Nenhum" ? `ponto fraco: ${p.fraco.toLowerCase()}` : null].filter(Boolean).join(" · ");
   const ch = rows.map(changeSentence).slice(0, 6);
   const o = p.noteObj;
   return `<div class="cr">
@@ -1544,7 +1546,7 @@ async function analyzeDiet(text){
   busy("diet", true); render();
   try {
     const r = await sample.json(`Você é nutricionista esportivo de triatlo. Analise o que o atleta comeu e responda em português do Brasil.
-Atleta: peso ${S.profile?.peso || "não informado"} kg, altura ${S.profile?.altura || "não informada"} cm, nível ${S.profile?.level || "?"}.
+Atleta: peso ${S.profile?.peso || "não informado"} kg, altura ${S.profile?.altura || "não informada"} cm.
 Alvos de hoje (já calculados pelo volume de treino): ${JSON.stringify(dietTargets())}
 Treino de hoje no plano: ${JSON.stringify(todaySessions())}
 Prova: ${JSON.stringify(raceForAI())}
@@ -1855,7 +1857,7 @@ function competitionHTML(team, me){
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4)/t.forma4*100).toFixed(1) : null;
     return `<article class="mate${t.__id === me ? " me" : ""}">
       <div class="row" style="justify-content:space-between"><h3>${esc(t.nick)}${t.__id === me ? ' <span class="note">(você)</span>' : ""}</h3><span class="mono">${rankStarted() ? t.points ?? 0 : 0} pts</span></div>
-      <div class="note">${esc(t.level || "")}${t.adherence != null ? ` · aderência ${t.adherence}%` : ""}${t.streakDays ? ` · ${t.streakDays} dias seguidos` : ""}</div>
+      <div class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : ""].filter(Boolean).join(" · ")}</div>
       <div class="kv" style="margin:0"><div><span>Condicionamento</span><b>${t.forma != null ? fmtNum(t.forma,1) : "—"}${ev != null ? ` <small class="delta ${ev >= 0 ? "good" : "bad"}">${ev >= 0 ? "▲" : "▼"}${Math.abs(ev)}%</small>` : ""}</b></div><div><span>Semana</span><b>${fmtNum(w.hours||0,1)} h · ${w.sessions ?? 0} treinos</b></div></div>
       ${miniWeeks(t)}
       <div class="legend"><span class="c-swim">${fmtNum(w.swim_m||0,0)} m</span><span class="c-bike">${fmtNum(w.bike_km||0,1)} km</span><span class="c-run">${fmtNum(w.run_km||0,1)} km</span></div>
@@ -1917,7 +1919,6 @@ function profileFormHTML(onboarding){
   return `
     <form class="f" id="profile">
       <div class="fld"><label for="nick">Como quer ser chamado</label><input id="nick" required value="${esc(p.nick||"")}" placeholder="Ex: Henrique"></div>
-      <div class="fld"><label for="level">Nível</label><select id="level">${["iniciante","intermediário","avançado"].map(x => `<option ${p.level===x?"selected":""}>${x}</option>`).join("")}</select></div>
       <div class="fld full"><label>Prova alvo (definida para o grupo)</label><div class="status">${esc(S.race.name)} · ${new Date(S.race.date+"T12:00:00").toLocaleDateString("pt-BR")} · ${esc(raceLabel())}</div></div>
       <div class="fld"><label for="peso">Peso (kg)</label><input id="peso" type="number" min="30" max="200" step="0.1" value="${esc(p.peso||"")}" placeholder="72,5"></div>
       <div class="fld"><label for="altura">Altura (cm)</label><input id="altura" type="number" min="120" max="230" value="${esc(p.altura||"")}" placeholder="178"></div>
@@ -2055,7 +2056,7 @@ document.addEventListener("submit", e => {
   if (e.target.id === "chatform"){ const t = $("#chatin"); const v = t.value; t.value = ""; sendChat(v); }
   if (e.target.id === "profile"){
     const days = [...document.querySelectorAll('input[name="day"]:checked')].map(x => +x.value);
-    S.profile = { ...(S.profile||{}), nick: $("#nick").value.trim(), level: $("#level").value,
+    S.profile = { ...(S.profile||{}), nick: $("#nick").value.trim(),
       peso: parseFloat($("#peso").value) || null, altura: parseFloat($("#altura").value) || null,
       hours: +$("#hours").value, pool: $("#pool").value, days,
       lesao: pick("q_lesao") || "Não", lesaoQual: pick("q_lesao") === "Sim" ? $("#q_lesao_qual").value.trim() : "",
