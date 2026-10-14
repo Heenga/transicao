@@ -1304,7 +1304,7 @@ function checkinHTML(){
     <form class="ci" id="checkin">
       <div class="cigroup"><div class="cig-t">Sono</div>
         <div class="cirow">
-          <div class="fld"><span class="lblq"><label for="ci_sono">Horas dormidas</label>${qtip("Quantas horas você dormiu de fato na última noite. Ex: 7,5 = sete horas e meia.")}</span><input id="ci_sono" type="number" step="0.25" min="0" max="14" value="${esc(v.sono ?? "")}" placeholder="7,5"></div>
+          <div class="fld"><span class="lblq"><label for="ci_sono_h">Tempo dormido</label>${qtip("Quanto você dormiu de fato na última noite: primeiro as horas, depois os minutos. Ex: 7 h e 30 min.")}</span><div class="hm"><input id="ci_sono_h" type="number" inputmode="numeric" min="0" max="14" step="1" value="${v.sono != null && v.sono !== "" ? Math.floor(+v.sono) : ""}" placeholder="7" aria-label="Horas dormidas"><span>h</span><input id="ci_sono_m" type="number" inputmode="numeric" min="0" max="59" step="5" value="${v.sono != null && v.sono !== "" ? Math.round((+v.sono % 1) * 60) : ""}" placeholder="30" aria-label="Minutos dormidos"><span>min</span></div></div>
           <div class="fld"><span class="lblq"><label for="ci_qual">Como dormiu</label>${qtip("Sua sensação ao acordar: 1 = péssimo, 3 = normal, 5 = ótimo. Use se não tiver relógio.")}</span><input id="ci_qual" type="number" min="1" max="5" value="${esc(v.qual ?? "")}" placeholder="1 a 5"></div>
           <div class="fld"><span class="lblq"><label for="ci_score">Sleep score</label>${qtip("Nota de 0 a 100 que o Garmin dá para o seu sono (app Garmin Connect → Sono). No Apple Watch, use a nota do app de sono que você tiver.")}</span><input id="ci_score" type="number" min="0" max="100" value="${esc(v.score ?? "")}" placeholder="0 a 100"></div>
         </div></div>
@@ -1923,7 +1923,8 @@ document.addEventListener("submit", e => {
   }
   if (e.target.id === "checkin"){
     const n = id => { const x = parseFloat($("#" + id).value); return isNaN(x) ? null : x; };
-    const c = { sono: n("ci_sono"), score: n("ci_score"), qual: n("ci_qual"), hrv: n("ci_hrv"), bb: n("ci_bb"), rhr: n("ci_rhr"), cans: n("ci_cans") };
+    const sh = n("ci_sono_h"), sm = n("ci_sono_m");
+    const c = { sono: sh == null && sm == null ? null : Math.round(((sh || 0) + (sm || 0) / 60) * 100) / 100, score: n("ci_score"), qual: n("ci_qual"), hrv: n("ci_hrv"), bb: n("ci_bb"), rhr: n("ci_rhr"), cans: n("ci_cans") };
     if (Object.values(c).every(v => v == null)){ flash("painel", "Preencha pelo menos um campo do check-in.", true); return; }
     saveRecovery(c); S.editCheckin = false; render();
     coachNote(true);
