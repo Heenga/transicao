@@ -348,10 +348,6 @@ async function offerDownload(filename, obj){
   catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") flash("dados", "Não consegui gerar o arquivo (" + (e?.code || "erro") + ").", true); }
 }
 /* ---------- competição: resumo público de cada participante (sem dados de saúde) ---------- */
-function weekPoints(hours, sessions, adh, sportsCount){
-  // recompensa constância e cumprir o plano, não só volume bruto
-  return Math.round(Math.min(hours, 15)*10 + Math.min(sessions, 10)*5 + (adh ?? 0)*0.5 + (sportsCount === 3 ? 20 : 0));
-}
 function streakDays(){
   const days = new Set(S.activities.map(a => dayKey(a.date))); let n = 0, d = new Date();
   if (!days.has(dayKey(d))) d = addDays(d, -1);
@@ -406,19 +402,19 @@ function computeBadges(){
   return b;
 }
 const PERIODS = { dia:"Hoje", semana:"Semana", mes:"Mês", periodo:"Todo o período" };
+const RANK_START = "2026-10-15"; // o ranking só conta treinos a partir deste dia
+const rankStarted = () => dayKey(new Date()) >= RANK_START;
 function periodStart(k){
-  const t = new Date(new Date().toDateString());
-  if (k === "dia") return t;
-  if (k === "semana") return mondayOf(t);
-  if (k === "mes") return new Date(t.getFullYear(), t.getMonth(), 1);
-  return new Date((S.race?.start || "2026-10-01") + "T00:00:00");
+  const t = new Date(new Date().toDateString()), min = new Date(RANK_START + "T00:00:00");
+  const st = k === "dia" ? t : k === "semana" ? mondayOf(t) : k === "mes" ? new Date(t.getFullYear(), t.getMonth(), 1) : min;
+  return st < min ? min : st;
 }
 function periodStats(){
   const enough = dataQuality().enough, fit = enough ? fitnessSeries(240) : null, out = {};
   for (const k of Object.keys(PERIODS)){
     const st = periodStart(k), xs = S.activities.filter(a => new Date(a.date) >= st && a.sport !== "other");
     const by = sp => xs.filter(a => a.sport === sp);
-    const hours = xs.reduce((s,a)=>s+a.mov,0)/3600, days = Math.max(1, Math.round((Date.now() - st)/864e5));
+    const hours = xs.reduce((s,a)=>s+a.mov,0)/3600, days = Math.max(1, Math.ceil((Date.now() - st)/864e5));
     const sports = ["swim","bike","run"].filter(sp => by(sp).length).length;
     const points = Math.round(hours*10 + Math.min(xs.length, days*2)*5 + (sports === 3 ? 20 : 0));
     let formaIni = null;
@@ -434,17 +430,18 @@ function saveTeam(){
   const w = weeklyBuckets(1)[0], w12 = weeklyBuckets(12), monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const month = sp => S.activities.filter(a => a.sport === sp && new Date(a.date) >= monthStart).reduce((s,a)=>s+a.dist,0);
   const hours = (w.swim.t + w.bike.t + w.run.t + w.other.t)/3600, sessions = w.swim.c + w.bike.c + w.run.c + w.other.c;
-  const sportsCount = [w.swim.c, w.bike.c, w.run.c].filter(Boolean).length, adh = adherence();
+  const adh = adherence();
   const fit = S.activities.length ? fitnessSeries(42) : null;
   const doc = { nick: S.profile.nick || "Atleta", level: S.profile.level || "",
     week: { swim_m: Math.round(w.swim.d), bike_km: +(w.bike.d/1000).toFixed(1), run_km: +(w.run.d/1000).toFixed(1), hours: +hours.toFixed(1), sessions },
     month: { swim_m: Math.round(month("swim")), bike_km: +(month("bike")/1000).toFixed(1), run_km: +(month("run")/1000).toFixed(1) },
     weeks12: w12.map(x => ({ s: Math.round(x.swim.t/60), b: Math.round(x.bike.t/60), r: Math.round(x.run.t/60), o: Math.round(x.other.t/60) })),
-    points: weekPoints(hours, sessions, adh, sportsCount),
+    points: 0, // preenchido abaixo com os pontos da semana contados a partir de RANK_START
     forma: fit && dataQuality().enough ? +score(fit.at(-1).ctl).toFixed(1) : null, forma4: fit && dataQuality().enough ? +score(fit[Math.max(0, fit.length-29)].ctl).toFixed(1) : null,
     streakDays: streakDays(), streakWeeks: streakWeeks(), adherence: adh, badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
     recent: S.activities.slice(0, 6).map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
     periods: periodStats(), updatedAt: new Date().toISOString() };
+  doc.points = doc.periods.semana.points;
   S.db.collection("team").doc(S.uid).set(doc).catch(e => console.warn("team", e));
 }
 
@@ -497,6 +494,7 @@ async function syncStrava(){
       try { const z = await TRI.api("/api/strava/activities?zones=1"); S.zones = JSON.stringify(z.zones).slice(0, 1500); } catch {}
       await persistSync();
       flash(S.view, `Strava sincronizado: histórico carregado${total ? ` (+${total} treinos antigos)` : ""}.`, false);
+      maybeReplan();
     })().catch(() => {});
   } catch (e) { busy("strava", false); flash(S.view, errText(e), true); }
 }
@@ -552,28 +550,95 @@ TESTES: se não houver dados confiáveis, na semana 1 marque testes: CSS (nataç
 POLIMENTO: 10-14 dias antes da prova (7 para sprint), volume -40 a -60%, frequência quase igual, mantenha alguns estímulos curtos de intensidade.
 RECUPERAÇÃO: sono <6 h, sleep score <60, Body Battery <40, HRV abaixo do habitual ou cansaço ≥4 → transforme o treino forte do dia em Z1-Z2 ou descanso.`;
 
-/* ---------- plano por IA ---------- */
+/* ---------- plano por IA: a semana é gerada no domingo à noite e reajustada a cada treino feito ou perdido ---------- */
+const WEEK_GEN_HOUR = 19; // domingo, a partir das 19h, gera a semana seguinte
+const WEEK_GEN_TEXT = "Os treinos da semana são gerados no domingo, a partir das 19h, e reajustados a cada treino que você faz (ou perde).";
+/** Janela a planejar: de hoje (ou amanhã, se já treinou) até domingo; no domingo à noite, a semana seguinte inteira. */
+function planWindow(){
+  const now = new Date(), hoje = new Date(now.toDateString());
+  const treinouHoje = S.activities.some(a => dayKey(a.date) === dayKey(hoje) && a.sport !== "other");
+  const domingoNoite = hoje.getDay() === 0 && now.getHours() >= WEEK_GEN_HOUR;
+  const from = treinouHoje || domingoNoite ? addDays(hoje, 1) : hoje;
+  const novaSemana = from.getDay() === 1 && dayKey(from) !== dayKey(mondayOf(hoje));
+  return { hoje, from, to: addDays(mondayOf(from), 6), treinouHoje, domingoNoite, novaSemana, aberta: !novaSemana || domingoNoite };
+}
 function planStart(){ return mondayOf(new Date()); }
-async function generatePlan(){
-  if (!S.profile){ go("dados"); flash("dados","Preencha seu perfil antes de gerar o plano.", true); return; }
+/** dia (YYYY-MM-DD) -> sessões, a partir da estrutura em semanas do plano */
+function planDayMap(plan){
+  const m = {}; if (!plan) return m;
+  const st = new Date(plan.start + "T00:00:00");
+  (plan.semanas||[]).forEach((w, wi) => (w.dias||[]).forEach(d => { if ((d.sessoes||[]).length) m[dayKey(addDays(st, wi*7 + d.dia))] = d.sessoes; }));
+  return m;
+}
+function buildWeeks(start, map, oldWeeks, curWeek){
+  const keys = Object.keys(map).sort(), last = keys.length ? new Date(keys.at(-1) + "T00:00:00") : start;
+  const n = Math.max(1, Math.floor((mondayOf(last) - start) / (7*864e5)) + 1), cw = Math.floor((mondayOf(new Date()) - start) / (7*864e5));
+  return Array.from({length:n}, (_, wi) => ({ n: wi+1, ...(wi >= cw && curWeek ? curWeek : { foco: oldWeeks?.[wi]?.foco || "", carga: oldWeeks?.[wi]?.carga || "" }),
+    dias: Array.from({length:7}, (_, d) => ({ dia: d, sessoes: map[dayKey(addDays(start, wi*7 + d))] || [] })) }));
+}
+/** Planejado × feito nos últimos dias, para a IA avaliar antes de planejar */
+function planVsDone(days){
+  const map = planDayMap(S.plan), today = new Date(new Date().toDateString()), out = [];
+  for (let off = -days; off <= 0; off++){
+    const k = dayKey(addDays(today, off));
+    const plan = (map[k] || []).filter(x => x.sport !== "rest").map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona }));
+    const feito = S.activities.filter(a => dayKey(a.date) === k).map(a => ({ sport: a.sport, nome: a.name, min: Math.round(a.mov/60), dist_km: a.dist ? +(a.dist/1000).toFixed(2) : null, fc_media: a.hr ? Math.round(a.hr) : null, esforco_1a10: a.rpe || null, tipo: a.tipo || null, dor: a.dor || null, obs: a.obs ? String(a.obs).slice(0, 140) : null }));
+    if (plan.length || feito.length) out.push({ data: k, hoje: off === 0, planejado: plan, feito });
+  }
+  return out;
+}
+function recentActIds(){ const lim = addDays(new Date(), -14); return S.activities.filter(a => new Date(a.date) >= lim).map(a => a.id); }
+/** Replanejar quando: acabou o horizonte, entrou treino novo, ou um treino planejado passou sem ser feito. */
+function needsReplan(){
+  if (!S.profile || S.busy.plan) return false;
+  const w = planWindow(); if (!w.aberta) return false;
+  if (!S.plan) return true;
+  const todayK = dayKey(new Date());
+  if (!S.plan.fim || S.plan.fim < dayKey(w.to)) return true;
+  const seen = new Set(S.plan.basis || []);
+  if (S.plan.basis && S.activities.some(a => a.sport !== "other" && new Date(a.date) >= addDays(new Date(), -3) && !seen.has(a.id))) return true;
+  const gen = S.plan.genDay || todayK, map = planDayMap(S.plan);
+  return Object.entries(map).some(([k, ss]) => k >= gen && k < todayK && ss.some(x => x.sport !== "rest" && !isDone(x, new Date(k + "T12:00:00"))));
+}
+let replanTriedAt = 0;
+function maybeReplan(){
+  if (!needsReplan() || Date.now() - replanTriedAt < 10*60e3) return;
+  replanTriedAt = Date.now(); generatePlan({ auto: true });
+}
+async function generatePlan(opts = {}){
+  if (!S.profile){ if (!opts.auto){ go("dados"); flash("dados","Preencha seu perfil antes de gerar o plano.", true); } return; }
   const sample = await cap("sample");
-  if (!sample){ flash("plano","O gerador de plano está indisponível agora.", true); render(); return; }
+  if (!sample){ if (!opts.auto){ flash("plano","O gerador de plano está indisponível agora.", true); render(); } return; }
+  if (S.busy.plan) return;
   busy("plan", true); render();
-  const start = planStart();
-  const hoje = new Date(new Date().toDateString()), hojeIdx = (hoje.getDay()+6)%7;
-  const fim = addDays(start, 27);
-  const prompt = `Você é um treinador de triatlo experiente. Monte um plano de 4 semanas em português do Brasil.
-CALENDÁRIO (siga exatamente):
-- Hoje é ${hoje.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} (dia ${hojeIdx} da semana, 0 = segunda).
-- A semana 1 vai de segunda ${start.toLocaleDateString("pt-BR")} a domingo ${addDays(start,6).toLocaleDateString("pt-BR")}. ${hojeIdx > 0 ? `Os dias 0 a ${hojeIdx-1} da semana 1 JÁ PASSARAM: deixe-os sem sessões (sessoes: []). O plano começa HOJE (dia ${hojeIdx}).` : "O plano começa hoje (segunda)."}
-- O plano termina no domingo ${fim.toLocaleDateString("pt-BR")}. A prova é em ${new Date(S.race.date+"T12:00:00").toLocaleDateString("pt-BR")} (faltam ${daysToRace()} dias).
-- Se a semana 1 ficar curta, distribua nela só o que cabe a partir de hoje, sem compensar volume.
+  const { hoje, from, to, treinouHoje, novaSemana, aberta } = planWindow();
+  if (!aberta){ busy("plan", false); flash("plano", "Sua semana já terminou. " + WEEK_GEN_TEXT, false); return; }
+  const nDias = Math.round((to - from) / 864e5) + 1;
+  const dias = Array.from({length: nDias}, (_, i) => addDays(from, i));
+  const fmtD = d => `${dayKey(d)} (${d.toLocaleDateString("pt-BR",{weekday:"long"})})`;
+  const map = planDayMap(S.plan);
+  const anteriores = Object.entries(map).filter(([k]) => k >= dayKey(from)).map(([data, ss]) => ({ data, sessoes: ss.map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona })) }));
+  const semanaAtual = (() => { const m = mondayOf(hoje), xs = S.activities.filter(a => new Date(a.date) >= m && a.sport !== "other"), by = sp => Math.round(xs.filter(a => a.sport === sp).reduce((t,a)=>t+a.mov,0)/60);
+    return { desde: dayKey(m), treinos: xs.length, min_natacao: by("swim"), min_bike: by("bike"), min_corrida: by("run") + by("brick"), min_forca: by("strength") }; })();
+  const prompt = `Você é um treinador de triatlo experiente acompanhando o atleta dia a dia, em português do Brasil.
+Você planeja UMA semana por vez (segunda a domingo). ${novaSemana ? "Agora é domingo à noite: monte a semana que começa amanhã inteira, olhando como foi a semana que terminou." : "A semana já está em andamento: replaneje só os dias que faltam, a partir do que foi feito até agora."} Depois de cada treino feito ou perdido o app te chama de novo para reajustar os dias restantes da semana.
 
-PROVA ALVO (a mesma para todo o grupo):
+CALENDÁRIO:
+- Hoje é ${hoje.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}.${treinouHoje ? " O atleta já treinou hoje; comece amanhã." : ""}
+- Planeje exatamente estes dias: ${dias.map(fmtD).join(", ")}.
+- A prova é em ${new Date(S.race.date+"T12:00:00").toLocaleDateString("pt-BR")} (faltam ${daysToRace()} dias).
+
+PROVA ALVO:
 ${JSON.stringify(raceForAI())}
 
 ATLETA:
 ${JSON.stringify(S.profile)}
+
+PLANEJADO × FEITO NOS ÚLTIMOS 7 DIAS (avalie isto primeiro):
+${JSON.stringify(planVsDone(7))}
+
+SEMANA ATUAL ATÉ AGORA: ${JSON.stringify(semanaAtual)} · horas disponíveis por semana: ${S.profile?.hours || "?"}
+O QUE ESTAVA PREVISTO PARA OS PRÓXIMOS DIAS (mantenha a coerência, mas mude o que for preciso): ${JSON.stringify(anteriores)}
 
 HISTÓRICO (dados reais do relógio/Strava):
 ${JSON.stringify(summaryForAI())}
@@ -586,31 +651,42 @@ CONDICIONAMENTO: ${JSON.stringify(fitnessForAI())}
 
 ${METODO}
 
-REGRAS DESTE PLANO:
-- Respeite os dias disponíveis e as horas semanais. Dias indisponíveis = descanso.
+COMO AVALIAR E AJUSTAR:
+- Compare planejado × feito: cumpriu? fez mais ou menos? esforço (1-10) acima do esperado para a zona? FC alta? dor?
+- Treino perdido não se "paga" acumulando: redistribua com bom senso e mantenha o equilíbrio da semana (modalidades, dias fortes x fáceis).
+- Esforço alto em treino que era fácil, dor, sono ruim ou cansaço → alivie os próximos dias. Tudo cumprido e com folga → pode progredir um pouco (respeitando +10%/semana).
+- Nunca 2 dias fortes seguidos; nada forte depois do longão; corrida forte não em dias seguidos.
+
+REGRAS:
+- Respeite os dias disponíveis e as horas semanais. Dia indisponível = descanso (sessoes: []).
 - PREFERÊNCIA DO ATLETA POR DIA: ${({ "1":"no máximo 1 modalidade por dia (nada de 2 sessões no mesmo dia)", "2":"no máximo 2 sessões por dia", "1+gym":"1 modalidade por dia; força/academia pode ser no mesmo dia", "todas":"pode combinar várias sessões no dia quando o plano pedir" })[S.profile?.porDia] || "sem preferência informada"}.
 - FIM DE SEMANA E FERIADOS: ${S.profile?.fds === "Sim" ? "pode treinar todas as modalidades no mesmo dia (use para longão, brick e treinos combinados)" : "segue a mesma regra dos outros dias"}.
 - Use rolo/esteira se o atleta tiver: rolo ${S.profile?.rolo || "?"}, corrida ${S.profile?.corre || "?"}. Ponto fraco: ${S.profile?.fraco || "?"} (dê um pouco mais de frequência a ele).
-- Parta do volume atual real (histórico acima); semana 4 é de recuperação, salvo se a prova cair antes.
 - Natação em metros com séries (ex: "10x100 no CSS, 15 s"). Bike e corrida em minutos com zona e RPE.
-- Se o histórico estiver vazio ou sem testes, comece conservador e marque os testes na semana 1.
+- Se o histórico estiver vazio ou sem testes, comece conservador e marque testes nestes primeiros dias.
 - QUEIXAS ATIVAS: ${JSON.stringify(activeComplaints())}. Para cada queixa, adapte: reduza impacto/volume na modalidade que agrava, inclua exercícios de reabilitação progressiva na força (ex.: tendão de Aquiles → excêntrico/isométrico de panturrilha com joelho estendido e flexionado; dor ≤3/10 durante e sem piora no dia seguinte é aceitável). Nunca diagnostique.
 
 Responda SÓ com JSON neste formato:
-{"resumo":"2 frases sobre a lógica do bloco","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semanas":[{"n":1,"foco":"texto curto","carga":"leve|moderada|alta|recuperação","dias":[{"dia":0,"sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","min":60,"dist":"2.000 m ou 30 km ou vazio","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}]}
-"exercicios" só nas sessões strength (4 a 7 exercícios). "etapas" em toda sessão que não for força: cada etapa com fase, minutos e descrição curta (até 70 caracteres). Não use "detalhe" longo.
-"dia" vai de 0 (segunda) a 6 (domingo); cada semana tem os 7 dias.`;
+{"avaliacao":"2 a 3 frases, falando com o atleta: como foram os últimos treinos (com números) e o que você ajustou por causa disso. Se ainda não houver treinos, diga como vai começar.","resumo":"1 frase sobre a direção dos próximos dias","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semana":{"foco":"texto curto sobre esta semana","carga":"leve|moderada|alta|recuperação"},"dias":[{"data":"YYYY-MM-DD","sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","min":60,"dist":"2.000 m ou 30 km ou vazio","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}
+"dias" tem exatamente os ${nDias} dias pedidos, em ordem. Descanso = sessoes: [].
+"exercicios" só nas sessões strength (4 a 7 exercícios). "etapas" em toda sessão que não for força: cada etapa com fase, minutos e descrição curta (até 70 caracteres). Não use "detalhe" longo.`;
   try {
-    const plan = await sample.json(prompt, { modelTier: "complex" });
-    if (!plan || !Array.isArray(plan.semanas)) throw { code:"invalid_json" };
-    (plan.semanas[0]?.dias || []).forEach(d => { if (d.dia < hojeIdx) d.sessoes = []; });
-    S.plan = { ...plan, start: dayKey(start), inicio: dayKey(hoje), fim: dayKey(fim), createdAt: new Date().toISOString() };
-    S.week = 0;
+    const r = await sample.json(prompt, { modelTier: "complex" });
+    if (!r || !Array.isArray(r.dias)) throw { code:"invalid_json" };
+    const fromK = dayKey(from), toK = dayKey(to);
+    Object.keys(map).forEach(k => { if (k >= fromK) delete map[k]; });
+    r.dias.forEach(d => { if (d?.data >= fromK && d.data <= toK) map[d.data] = (d.sessoes || []).filter(x => x && x.sport !== "rest"); });
+    const start = S.plan?.start ? new Date(S.plan.start + "T00:00:00") : planStart();
+    const { dias: _d, semana, ...meta } = r;
+    S.plan = { ...meta, start: dayKey(start), inicio: S.plan?.inicio || dayKey(hoje), fim: toK, rolling: true,
+      semanas: buildWeeks(start, map, S.plan?.semanas, semana), genDay: dayKey(hoje), basis: recentActIds(),
+      createdAt: S.plan?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
+    S.week = Math.max(0, Math.min(Math.floor((mondayOf(hoje) - start) / (7*864e5)), S.plan.semanas.length - 1));
     await save("plan", S.plan);
-    flash("plano", "Plano gerado.", false);
+    flash("plano", novaSemana ? "Treinos da semana gerados." : opts.auto ? "Treinos restantes da semana reajustados a partir do que você fez." : "Treinos da semana planejados.", false);
     coachNote(true);
   } catch (e) {
-    flash("plano", e?.code === "not_granted" ? "Você precisa permitir que esta página use o Claude para gerar o plano." :
+    flash("plano", e?.code === "ai_off" ? "A IA está desligada: falta configurar a chave ANTHROPIC_API_KEY na Vercel." : e?.code === "not_granted" ? "Você precisa permitir que esta página use o Claude para gerar o plano." :
       e?.code === "rate_limited" ? "Muitas gerações em sequência. Espere um minuto e tente de novo." :
       e?.code === "invalid_json" ? "O plano veio incompleto. Tente gerar de novo." : "Não consegui gerar o plano (" + (e?.code || "erro") + ").", true);
   }
@@ -622,7 +698,7 @@ function activeComplaints(){ return (S.profile?.complaints || []).filter(c => !c
 const sportFits = (sess, a) => a.sport === sess.sport || (sess.sport === "brick" && (a.sport === "bike" || a.sport === "run" || a.sport === "brick"));
 let _mm = { key:"", sessToAct:new Map(), actToSess:new Map() };
 function planMatches(){
-  const key = (S.plan?.createdAt || "") + "|" + S.activities.length + "|" + (S.activities[0]?.id || "") + "|" + S.activities.filter(a => a.planRef).length;
+  const key = (S.plan?.updatedAt || S.plan?.createdAt || "") + "|" + S.activities.length + "|" + (S.activities[0]?.id || "") + "|" + S.activities.filter(a => a.planRef).length;
   if (_mm.key === key) return _mm;
   const sessToAct = new Map(), actToSess = new Map();
   if (S.plan){
@@ -1136,10 +1212,10 @@ function lastWorkoutBody(a){
     ${!a.rpe ? `<div class="rate"><div class="note">Como foi o esforço? (1 muito leve, 10 máximo)</div><div class="rpe">${Array.from({length:10},(_,i)=>i+1).map(n => `<button type="button" data-rpe="${n}" data-id="${esc(a.id)}" title="${RPE[n]}"><span>${n}</span></button>`).join("")}</div></div>` : ""}`;
 }
 function nextWorkoutHTML(){
-  if (!S.plan) return `<p class="muted" style="margin:0">Seu plano ainda não foi gerado.</p><div><button class="btn" data-act="plan" ${S.busy.plan ? "disabled" : ""}>${S.busy.plan ? '<span class="spin"></span> Gerando plano' : "Gerar plano"}</button></div>`;
-  const n = nextSession();
-  if (!n) return `<p class="muted" style="margin:0">O bloco atual acabou. Gere o próximo.</p><div><button class="btn" data-act="plan">Gerar novo bloco</button></div>`;
-  return `<div class="note" style="margin-bottom:10px">${relDay(n.off) || n.date.toLocaleDateString("pt-BR",{weekday:"long"})} · ${n.date.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}</div>
+  if (!S.plan) return `<p class="muted" style="margin:0">Seus treinos da semana ainda não foram gerados.</p><p class="note" style="margin:0">${WEEK_GEN_TEXT}</p><div><button class="btn" data-act="plan" ${S.busy.plan ? "disabled" : ""}>${S.busy.plan ? '<span class="spin"></span> Gerando' : "Gerar treinos da semana"}</button></div>`;
+  const n = nextSession(), av = S.plan.avaliacao ? `<p class="note" style="margin:0 0 12px"><b>Leitura do coach:</b> ${esc(S.plan.avaliacao)}</p>` : "";
+  if (!n) return `${av}<p class="muted" style="margin:0">${S.busy.plan ? "Avaliando seus últimos treinos para montar a semana…" : "Semana concluída."}</p><p class="note" style="margin:0">${WEEK_GEN_TEXT}</p>`;
+  return `${av}<div class="note" style="margin-bottom:10px">${relDay(n.off) || n.date.toLocaleDateString("pt-BR",{weekday:"long"})} · ${n.date.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}</div>
     <div class="today-list">${n.sessions.map(s => sessHTML(s, null)).join("")}</div>`;
 }
 /* ---------- registros manuais (treino sem relógio, recuperação) ---------- */
@@ -1195,61 +1271,29 @@ function rpeChips(name, value){
     `<label title="${RPE[n]}"><input type="radio" name="${name}" value="${n}" ${value == n ? "checked" : ""}><span>${n}</span></label>`).join("")}</div>
     <div class="rpe-scale note"><span>muito leve</span><span>moderado</span><span>máximo</span></div>`;
 }
-const LOG_SPORTS = ["run","bike","swim","strength","brick","other"];
+const LOG_SPORTS = ["run","bike","swim","strength","brick"];
 function logFormHTML(){
-  const sp = S.logSport || "run", date = S.logDate || dayKey(new Date()), planned = plannedFor(date);
-  const sel = (id, opts, ph) => `<select id="${id}">${ph ? `<option value="">${ph}</option>` : ""}${opts.map(o => `<option>${esc(o)}</option>`).join("")}</select>`;
+  const sp = S.logSport || "run", date = S.logDate || dayKey(new Date());
   const show = (...s) => s.includes(sp) ? "" : "hidden";
   return `<section class="panel logbox"><div class="ph"><h2>Registrar treino</h2><button class="btn ghost sm" type="button" data-act="hidelog">Fechar</button></div>
     <form id="logform" class="logf">
-      <fieldset><legend>1 · O treino</legend>
-        <div class="sportpick" role="radiogroup" aria-label="Modalidade">${LOG_SPORTS.map(s => `<label class="c-${s === "brick" ? "brick" : s}"><input type="radio" name="l_sport" value="${s}" ${s === sp ? "checked" : ""}><span>${SPORTS[s]}</span></label>`).join("")}</div>
+      <fieldset><legend>O treino</legend>
+        <div class="sportpick" role="radiogroup" aria-label="Modalidade">${LOG_SPORTS.map(s => `<label class="c-${s}"><input type="radio" name="l_sport" value="${s}" ${s === sp ? "checked" : ""}><span>${SPORTS[s]}</span></label>`).join("")}</div>
         <div class="f">
           <div class="fld"><label for="l_date">Data</label><input id="l_date" type="date" value="${date}" max="${dayKey(new Date())}"></div>
           <div class="fld"><label>Período</label>${pills("l_periodo", ["Manhã","Tarde","Noite"], "Manhã")}</div>
-          <div class="fld"><label for="l_tipo">Tipo de treino</label>${sel("l_tipo", TIPOS[sp])}</div>
-          <div class="fld"><label for="l_local">Onde</label>${sel("l_local", LOCAIS[sp])}</div>
-          ${planned.length ? `<div class="fld full"><label for="l_plan">Era um treino do plano?</label><select id="l_plan"><option value="">Não, treino extra</option>${planned.map(s => `<option value="${s.ref}">${esc(SPORTS[s.sport] + ": " + (s.titulo||"") + (s.min ? ` (${s.min} min)` : ""))}</option>`).join("")}</select></div>
-            <div class="fld full"><label>Cumpriu o planejado?</label>${pills("l_cumpriu", ["Sim, completo","Parcial","Mudei o treino"], "")}</div>` : ""}
         </div>
       </fieldset>
-      <fieldset><legend>2 · Volume</legend><div class="f">
-        <div class="fld" ${sp === "brick" ? "hidden" : ""}><label for="l_min">Duração (min)</label><input id="l_min" type="number" min="1" max="900" placeholder="45"></div>
-        <div class="fld" ${show("brick")}><label for="l_bmin">Bike (min)</label><input id="l_bmin" type="number" min="0" max="600" placeholder="60"></div>
-        <div class="fld" ${show("brick")}><label for="l_rmin">Corrida depois (min)</label><input id="l_rmin" type="number" min="0" max="300" placeholder="15"></div>
-        <div class="fld" ${show("run","bike","swim","brick","other")}><label for="l_dist">Distância ${sp === "swim" ? "(m)" : "(km)"}</label><input id="l_dist" type="number" min="0" step="${sp === "swim" ? 25 : 0.01}" placeholder="${sp === "swim" ? "2000" : "opcional"}"></div>
-        <div class="fld" ${show("run","bike","brick")}><label for="l_elev">Subida acumulada (m)</label><input id="l_elev" type="number" min="0" placeholder="opcional"></div>
-        <div class="fld" ${show("run")}><label>Terreno</label>${pills("l_terreno", ["Plano","Ondulado","Muita subida"], "")}</div>
-        <div class="fld" ${show("bike","brick")}><span class="lblq"><label for="l_watts">Potência média (W)</label>${qtip("Só se a bike ou o rolo tiver medidor de potência. É a média em watts do treino.")}</span><input id="l_watts" type="number" min="0" max="2000" placeholder="se tiver medidor"></div>
-        <div class="fld" ${show("bike","run","brick")}><label for="l_cad">Cadência média</label><input id="l_cad" type="number" min="0" max="250" placeholder="${sp === "run" ? "passos/min" : "rpm"}"></div>
-        <div class="fld" ${show("swim")}><label>Estilo principal</label>${pills("l_estilo", ["Crawl","Misto","Outro"], "Crawl")}</div>
-        <div class="fld full" ${show("swim")}><label>Acessórios</label><div class="days pills multi">${["Pullbuoy","Palmar","Pé de pato","Snorkel","Prancha"].map(x => `<label><input type="checkbox" name="l_acess" value="${x}">${x}</label>`).join("")}</div></div>
-        <div class="fld full" ${show("run","bike","swim")}><label for="l_series">Séries / estrutura</label><input id="l_series" placeholder="${sp === "swim" ? "Ex: 300 aquec. + 8x100 CSS 15s + 200 solto" : "Ex: 15' aquec. + 6x3' Z4 c/ 1' + 10' solto"}"></div>
-        <div class="fld full" ${show("strength")}><label>Exercícios</label>
-          <div class="exrows" id="l_ex">${strengthRow()}${strengthRow()}${strengthRow()}</div>
-          <button type="button" class="btn ghost sm" data-act="addexrow" style="margin-top:8px">+ exercício</button></div>
+      <fieldset><legend>Volume <span class="note">(tudo opcional)</span></legend><div class="f">
+        <div class="fld"><label for="l_min">Duração (min)</label><input id="l_min" type="number" inputmode="numeric" min="0" max="900" placeholder="45"></div>
+        <div class="fld" ${show("run","bike","swim","brick")}><label for="l_dist">Distância ${sp === "swim" ? "(m)" : "(km)"}</label><input id="l_dist" type="number" inputmode="decimal" min="0" step="${sp === "swim" ? 25 : 0.01}" placeholder="${sp === "swim" ? "2000" : "10"}"></div>
+        <div class="fld" ${show("run","bike","brick")}><label for="l_elev">Subida (m)</label><input id="l_elev" type="number" inputmode="numeric" min="0" placeholder="120"></div>
+        <div class="fld" ${show("run","bike","brick")}><label for="l_cad">Cadência média</label><input id="l_cad" type="number" inputmode="numeric" min="0" max="250" placeholder="${sp === "run" ? "passos/min" : "rpm"}"></div>
       </div></fieldset>
-      <fieldset><legend>3 · Como foi</legend><div class="f">
-        <div class="fld full"><span class="lblq"><label>Esforço percebido: quão difícil foi? <span class="note" id="l_zone"></span></label>${qtip("Nota de 1 a 10 para o quanto o treino foi difícil no geral: 1–2 bem leve, 3–4 confortável (conversa), 5–6 moderado, 7–8 forte, 9–10 no limite. É com ela que o app calcula a carga quando não há frequência cardíaca.")}</span>${rpeChips("l_rpe", 5)}</div>
-        <div class="fld"><label>Como o corpo respondeu</label>${pills("l_feel", ["Ótimo","Bem","Normal","Pesado","Mal"], "Normal")}</div>
-        <div class="fld"><label>Clima</label>${pills("l_clima", ["Fresco","Agradável","Calor","Chuva","Indoor"], "")}</div>
-        <div class="fld" ${sp === "strength" ? "hidden" : ""}><label for="l_hr">FC média</label><input id="l_hr" type="number" min="60" max="220" placeholder="opcional"></div>
-        <div class="fld" ${sp === "strength" ? "hidden" : ""}><label for="l_hrmax">FC máxima</label><input id="l_hrmax" type="number" min="60" max="230" placeholder="opcional"></div>
-        <div class="fld full"><label>Sentiu alguma dor?</label>${pills("l_dor", ["Não","Sim"], "Não")}
-          <div class="f dorbox" id="l_dorbox" hidden>
-            <div class="fld"><label for="l_dor_onde">Onde</label><input id="l_dor_onde" list="l_dor_list" placeholder="Ex: joelho direito"><datalist id="l_dor_list">${[...activeComplaints().map(c => c.local), "Joelho", "Canela", "Tendão de Aquiles", "Panturrilha", "Quadril", "Lombar", "Ombro", "Pé / fáscia"].map(x => `<option value="${esc(x)}">`).join("")}</datalist></div>
-            <div class="fld"><label for="l_dor_nivel">Intensidade (0–10)</label><input id="l_dor_nivel" type="number" min="0" max="10" placeholder="3"></div>
-            <div class="fld full"><label>Quando</label>${pills("l_dor_quando", ["No início","Durante","Depois","Piorou no treino"], "Durante")}</div>
-          </div></div>
+      <fieldset><legend>Como foi <span class="note">(opcional)</span></legend><div class="f">
+        <div class="fld full"><span class="lblq"><label>Esforço: quão difícil foi? <span class="note" id="l_zone"></span></label>${qtip("1–2 bem leve, 3–4 confortável (dá para conversar), 5–6 moderado, 7–8 forte, 9–10 no limite. Ajuda o coach a ajustar os próximos treinos.")}</span>${rpeChips("l_rpe", null)}</div>
+        <div class="fld full"><label for="l_obs">Observação</label><textarea id="l_obs" rows="2" placeholder="Algo que o coach deve saber"></textarea></div>
       </div></fieldset>
-      <fieldset><legend>4 · Combustível</legend><div class="f">
-        <div class="fld"><label>Comeu antes?</label>${pills("l_pre", ["Jejum","Lanche leve","Refeição completa"], "")}</div>
-        <div class="fld" ${sp === "strength" ? "hidden" : ""}><span class="lblq"><label for="l_carbo">Carboidrato durante (g)</label>${qtip("Gramas de carboidrato consumidas durante o treino. Um gel tem cerca de 25 g; uma banana, 25 g; 500 ml de isotônico, 30 g.")}</span><input id="l_carbo" type="number" min="0" max="600" placeholder="gel ≈ 25 g"></div>
-        <div class="fld" ${sp === "strength" ? "hidden" : ""}><label for="l_agua">Água / isotônico (ml)</label><input id="l_agua" type="number" min="0" max="5000" step="50" placeholder="500"></div>
-      </div></fieldset>
-      <fieldset><legend>5 · Observações</legend>
-        <textarea id="l_obs" rows="2" placeholder="Algo que o coach deve saber: ritmo travou no fim, câimbra, técnica, equipamento novo…"></textarea>
-      </fieldset>
       <div class="logfoot"><div class="preview" id="l_preview" aria-live="polite">${logPreviewHTML()}</div>
         <div class="row"><button class="btn" type="submit">Salvar treino</button><span class="note">Também dá para contar no chat.</span></div></div>
     </form></section>`;
@@ -1262,19 +1306,18 @@ function readLog(){
   const v = id => $("#" + id)?.value?.trim?.() ?? "";
   const n = id => { const x = parseFloat(v(id)); return isNaN(x) ? null : x; };
   const sp = pick("l_sport") || "run";
-  let min = sp === "brick" ? (n("l_bmin")||0) + (n("l_rmin")||0) : n("l_min");
+  const min = n("l_min");
   const dv = n("l_dist") || 0, dist = sp === "swim" ? (dv > 0 && dv < 20 ? dv*1000 : dv) : dv*1000;
   const forca = sp === "strength" ? [...document.querySelectorAll("#l_ex .exrow")].map(r => ({ nome: r.querySelector('[name="ex_nome"]').value.trim(), series: +r.querySelector('[name="ex_series"]').value || null, reps: r.querySelector('[name="ex_reps"]').value.trim(), kg: +r.querySelector('[name="ex_kg"]').value || null })).filter(x => x.nome) : [];
   const dor = pick("l_dor") === "Sim" && v("l_dor_onde") ? { onde: v("l_dor_onde"), nivel: n("l_dor_nivel") ?? 3, quando: pick("l_dor_quando") } : null;
   return { sport: sp, date: v("l_date"), periodo: pick("l_periodo"), tipo: v("l_tipo"), local: v("l_local"), planRef: v("l_plan"), cumpriu: pick("l_cumpriu"),
     min, dist, elev: n("l_elev"), terreno: pick("l_terreno"), watts: n("l_watts"), cadencia: n("l_cad"), estilo: sp === "swim" ? pick("l_estilo") : "",
     acessorios: [...document.querySelectorAll('input[name="l_acess"]:checked')].map(x => x.value), series: v("l_series"), forca,
-    bike_min: sp === "brick" ? n("l_bmin") : null, run_min: sp === "brick" ? n("l_rmin") : null,
     rpe: +(pick("l_rpe") || 0), feel: pick("l_feel"), clima: pick("l_clima"), hr: n("l_hr"), fcmax: n("l_hrmax"), dor,
     pre: pick("l_pre"), carbo_g: n("l_carbo"), agua_ml: n("l_agua"), obs: v("l_obs") };
 }
 function logPreviewHTML(x){
-  if (!x || !x.min) return `<span class="note">Preencha a duração para ver a carga do treino.</span>`;
+  if (!x || !x.min) return `<span class="note">Com a duração, o app calcula a carga do treino.</span>`;
   const load = loadOf({ mov: x.min*60, rpe: x.rpe, hr: x.hr, sport: x.sport });
   const pace = x.dist ? (x.sport === "run" ? paceRun(x.dist, x.min*60) : x.sport === "swim" ? paceSwim(x.dist, x.min*60) : x.sport === "bike" ? speedBike(x.dist, x.min*60) : "") : "";
   const vol = x.forca?.length ? x.forca.reduce((s,e) => s + (e.series||0) * (parseInt(e.reps)||0) * (e.kg||0), 0) : 0;
@@ -1530,7 +1573,7 @@ function doneHTML(a){
 }
 function viewTreinos(){
   const actions = `<div class="row"><button class="btn" data-act="showlog">Registrar treino</button><button class="btn ghost" data-act="sync" ${S.busy.strava ? "disabled" : ""}>${S.busy.strava ? '<span class="spin"></span> Sincronizando' : "Atualizar Strava"}</button></div>`;
-  const head = `<div class="hero"><div><div class="eyebrow">Treinos${S.plan ? ` · fase ${esc(S.plan.fase || "")}` : ""}</div><h1>Planejado e feito</h1><p>${S.plan ? esc(S.plan.resumo || "") : "Seu plano de 4 semanas e tudo o que você já treinou."}</p></div>${actions}</div>
+  const head = `<div class="hero"><div><div class="eyebrow">Treinos${S.plan ? ` · fase ${esc(S.plan.fase || "")}` : ""}</div><h1>Planejado e feito</h1><p>${S.plan ? esc(S.plan.resumo || "") : "Seus treinos da semana, reajustados a cada treino feito, e tudo o que você já treinou."}</p></div>${actions}</div>
     ${msgHTML("treinos")}${msgHTML("plano")}
     ${S.showLog ? `<div style="margin-bottom:16px">${logFormHTML()}</div>` : ""}`;
   return head + calendarHTML() + planSectionHTML() + doneTableHTML() + metodoHTML();
@@ -1557,25 +1600,29 @@ function calendarHTML(){
   return `<section class="panel cal" style="margin-bottom:16px">
     <div class="calhead">
       <div><div class="eyebrow">Hoje</div><b>${(t => t.charAt(0).toUpperCase()+t.slice(1))(today.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}))}</b></div>
-      <div><div class="eyebrow">Plano atual</div><b>${S.plan ? `${new Date((S.plan.inicio || S.plan.start)+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})} → ${new Date(planEnd+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}` : "não gerado"}</b></div>
+      <div><div class="eyebrow">Planejado até</div><b>${S.plan ? new Date(planEnd+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"short"}) : "não gerado"}</b></div>
       <div><div class="eyebrow">Prova</div><b>${new Date(raceK+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})} · faltam ${dtr} dias</b></div>
     </div>
     <div class="calnav"><button class="btn ghost sm" data-calm="-1" aria-label="Mês anterior">‹</button><h3>${(t => t.charAt(0).toUpperCase()+t.slice(1))(base.toLocaleDateString("pt-BR",{month:"long",year:"numeric"}))}</h3><button class="btn ghost sm" data-calm="1" aria-label="Próximo mês">›</button>${base.getMonth() !== today.getMonth() || base.getFullYear() !== today.getFullYear() ? `<button class="btn ghost sm" data-calm="0">Hoje</button>` : ""}</div>
     <div class="calgrid" role="grid">${DOW.map(d => `<div class="cdow">${d}</div>`).join("")}${cells.slice(0, rows*7).map(d => {
       const k = dayKey(d), out = d.getMonth() !== base.getMonth(), past = k < todayK, plan = sessionsOn(d), done = doneBy[k] || [];
       const inPlan = S.plan && k >= (S.plan.inicio || S.plan.start) && planEnd && k <= planEnd;
+      // ✓ verde: treinou (e cumpriu o planejado); ✗ vermelho: tinha treino planejado e passou sem fazer
+      const ok = k <= todayK && (plan.length ? plan.every(x => isDone(x, d)) : done.some(a => a.sport !== "other"));
+      const miss = past && plan.length && !ok;
+      const mark = ok ? `<span class="mark ok" aria-label="feito">✓</span>` : miss ? `<span class="mark miss" aria-label="não feito">✕</span>` : "";
       return `<button class="cday${out ? " out" : ""}${past ? " past" : ""}${k === todayK ? " today" : ""}${k === sel ? " sel" : ""}${k === raceK ? " race" : ""}${inPlan ? " inplan" : ""}" data-cald="${k}" aria-label="${d.toLocaleDateString("pt-BR")}">
-        <span class="num">${d.getDate()}</span>
+        <span class="num">${d.getDate()}</span>${mark}
         ${k === raceK ? `<span class="flag">PROVA</span>` : ""}
         <span class="dots">${done.map(a => `<i class="dn" style="background:var(--${["swim","bike","run"].includes(a.sport) ? a.sport : "ink"})"></i>`).join("")}${!past ? plan.map(p => `<i class="pl" style="border-color:var(--${["swim","bike","run"].includes(p.sport) ? p.sport : p.sport === "brick" ? "run" : "ink"})"></i>`).join("") : ""}</span>
       </button>`; }).join("")}</div>
-    <div class="legend" style="margin-top:10px"><span style="--c:var(--ink)">● feito</span><span style="--c:var(--muted)">○ planejado</span><span style="--c:var(--run)">Natação / Bike / Corrida pelas cores</span></div>
+    <div class="legend" style="margin-top:10px"><span style="--c:var(--ok)">✓ treino feito</span><span style="--c:var(--bad)">✕ planejado e não feito</span><span style="--c:var(--ink)">● feito</span><span style="--c:var(--muted)">○ planejado</span><span style="--c:var(--run)">Natação / Bike / Corrida pelas cores</span></div>
     <div class="calday">
       <h3>${(t => t.charAt(0).toUpperCase()+t.slice(1))(selD.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}))}${sel === todayK ? " · hoje" : ""}${sel === raceK ? " · dia da prova" : ""}</h3>
       ${sel < todayK
         ? (selDone.length ? `<div class="today-list">${selDone.map(doneHTML).join("")}</div>` : `<p class="note" style="margin:0">Nenhum treino registrado neste dia.</p>`)
         : (selPlan.length ? `<div class="today-list">${selPlan.map(s => sessHTML(s, sel === todayK ? selD : null)).join("")}</div>${selDone.length ? `<div class="lbl">Feito</div>${selDone.map(doneHTML).join("")}` : ""}`
-          : `<p class="note" style="margin:0">${!S.plan ? "Gere o plano para ver os treinos." : planEnd && sel > planEnd ? "Fora do plano atual. Um novo bloco é gerado ao fim deste." : "Descanso."}</p>`)}
+          : `<p class="note" style="margin:0">${!S.plan ? "Gere o plano para ver os treinos." : planEnd && sel > planEnd ? "A definir. " + WEEK_GEN_TEXT : "Descanso."}</p>`)}
     </div>
   </section>`;
 }
@@ -1600,8 +1647,8 @@ function doneTableHTML(){
   </section>`;
 }
 function planSectionHTML(){
-  if (!S.plan) return `<div class="empty"><h3>Nenhum plano gerado</h3><p class="muted" style="margin:0">${S.activities.length ? `Temos ${S.activities.length} treinos no histórico para calibrar.` : "Sem histórico, o plano começa conservador e marca testes na semana 1."}</p>
-      <button class="btn" data-act="plan" ${S.busy.plan ? "disabled" : ""}>${S.busy.plan ? '<span class="spin"></span> Gerando (leva ~1 min)' : "Gerar plano"}</button></div>`;
+  if (!S.plan) return `<div class="empty"><h3>Nenhum plano gerado</h3><p class="muted" style="margin:0">${S.activities.length ? `Temos ${S.activities.length} treinos no histórico para calibrar.` : "Sem histórico, a primeira semana começa conservadora e com testes."} ${WEEK_GEN_TEXT}</p>
+      <button class="btn" data-act="plan" ${S.busy.plan ? "disabled" : ""}>${S.busy.plan ? '<span class="spin"></span> Gerando (leva ~1 min)' : "Gerar treinos da semana"}</button></div>`;
   const w = S.plan.semanas[S.week] || S.plan.semanas[0];
   const curIdx = Math.floor((mondayOf(new Date()) - new Date(S.plan.start + "T00:00:00")) / (7*864e5));
   const days = Array.from({length:7}, (_, i) => (w.dias||[]).find(d => d.dia === i) || { dia:i, sessoes:[] });
@@ -1609,7 +1656,7 @@ function planSectionHTML(){
   const mins = (w.dias||[]).flatMap(d => d.sessoes||[]).reduce((m, s) => { if (s.sport && s.sport !== "rest") m[s.sport] = (m[s.sport]||0) + (Number(s.min)||0); return m; }, {});
   const total = Object.values(mins).reduce((a,b)=>a+b,0);
   const doneBy = {}; S.activities.forEach(a => { (doneBy[dayKey(a.date)] ||= []).push(a); });
-  return `<section class="panel"><div class="ph"><h2>${esc(w.foco || "Semana " + (S.week+1))}</h2><button class="btn ghost" data-act="plan" ${S.busy.plan ? "disabled" : ""}>${S.busy.plan ? '<span class="spin"></span> Gerando' : "Gerar novo plano"}</button></div>
+  return `<section class="panel"><div class="ph"><h2>${esc(w.foco || "Semana " + (S.week+1))}</h2><button class="btn ghost" data-act="plan" ${S.busy.plan ? "disabled" : ""}>${S.busy.plan ? '<span class="spin"></span> Reajustando' : "Reajustar semana"}</button></div>
     <div class="row" style="justify-content:space-between;margin-bottom:14px">
       <div class="weektabs">${S.plan.semanas.map((x, i) => `<button data-week="${i}" aria-pressed="${i === S.week}">S${i+1}${i === curIdx ? " · atual" : ""}</button>`).join("")}</div>
       <div class="legend"><span class="c-swim">Natação ${mins.swim||0} min</span><span class="c-bike">Bike ${mins.bike||0} min</span><span class="c-run">Corrida ${(mins.run||0)+(mins.brick||0)} min</span><span style="--c:var(--ink)">Total ${fmtDur(total*60)} · carga ${esc(w.carga || "—")}</span></div>
@@ -1618,9 +1665,9 @@ function planSectionHTML(){
       const done = doneBy[dayKey(date)] || [];
       return `<div class="day${dayKey(date) === todayKey ? " today" : ""}"><div class="dh"><span>${DOW[d.dia]}</span><span>${date.getDate()}/${date.getMonth()+1}</span></div>
       <div class="lbl">Planejado</div>
-      ${ss.length ? ss.map(s => sessHTML(s, date <= new Date() ? date : null)).join("") : `<div class="sess c-rest"><div class="t">Descanso</div></div>`}
+      ${ss.length ? ss.map(s => sessHTML(s, date <= new Date() ? date : null)).join("") : S.plan.fim && dayKey(date) > S.plan.fim ? `<div class="sess c-rest"><div class="t">A definir</div></div>` : `<div class="sess c-rest"><div class="t">Descanso</div></div>`}
       ${done.length ? `<div class="lbl">Feito</div>${done.map(doneHTML).join("")}` : ""}</div>`; }).join("")}</div>
-    <p class="note" style="margin:14px 0 0">Sessões planejadas ficam verdes quando um treino da mesma modalidade é feito no dia. Peça ajustes ao coach.</p></section>`;
+    <p class="note" style="margin:14px 0 0"><b>${WEEK_GEN_TEXT}</b> Sessões ficam verdes quando um treino da mesma modalidade é feito no dia.</p></section>`;
 }
 function pills(name, opts, value){
   return `<div class="days pills" role="radiogroup">${opts.map(o => `<label><input type="radio" name="${name}" value="${esc(o)}" ${value === o ? "checked" : ""}>${esc(o)}</label>`).join("")}</div>`;
@@ -1693,7 +1740,8 @@ function miniWeeks(t){
     let y = H; return [["s","swim"],["b","bike"],["r","run"],["o","muted"]].map(([k,c]) => { const h = w[k]/max*(H-4); y -= h; return h > 0 ? `<rect x="${(i*bw+1.5).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--${c})"/>` : ""; }).join("") + `<title>${tot[i]} min</title>`; }).join("")}</svg>`;
 }
 function competitionHTML(team, me){
-  const board = BOARDS.find(b => b.k === (S.board || "points")) || BOARDS[0];
+  const b0 = BOARDS.find(b => b.k === (S.board || "points")) || BOARDS[0];
+  const board = rankStarted() ? b0 : { ...b0, v: () => 0 }; // antes do início, ninguém pontua
   const ranked = team.slice().sort((a,b) => board.v(b) - board.v(a));
   const pod = ranked.slice(0, 3);
   const feed = team.flatMap(t => (t.recent||[]).map(r => ({ ...r, nick: t.nick, uid: t.__id }))).sort((a,b) => String(b.date).localeCompare(String(a.date))).slice(0, 12);
@@ -1703,6 +1751,7 @@ function competitionHTML(team, me){
   return `
   <section class="panel" style="margin-bottom:16px"><div class="ph"><h2>Placar</h2>
       <div class="seg" role="group" aria-label="Período">${Object.entries(PERIODS).map(([k,v]) => `<button data-period="${k}" aria-pressed="${(S.period || "semana") === k}">${v}</button>`).join("")}</div></div>
+    ${rankStarted() ? "" : `<p class="status" style="margin:0 0 14px">O ranking começa a contar em ${new Date(RANK_START + "T12:00:00").toLocaleDateString("pt-BR")}. Até lá, ninguém pontua.</p>`}
     <div class="weektabs" style="margin-bottom:16px">${BOARDS.map(b => `<button data-board="${b.k}" aria-pressed="${b.k === board.k}">${b.t}</button>`).join("")}</div>
     <p class="note" style="margin:0 0 14px">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde o início do período (${periodStart(S.period || "semana").toLocaleDateString("pt-BR")}).` : `${PERIODS[S.period || "semana"]}: desde ${periodStart(S.period || "semana").toLocaleDateString("pt-BR")}.`}</p>
     <div class="podium">${pod.map((t, i) => `<div class="pod p${i+1}"><div class="medal">${i+1}º</div><b>${esc(t.nick)}${t.__id === me ? " (você)" : ""}</b><span class="mono">${board.f(board.v(t))}</span></div>`).join("")}</div>
@@ -1712,7 +1761,7 @@ function competitionHTML(team, me){
   </section>
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4)/t.forma4*100).toFixed(1) : null;
     return `<article class="mate${t.__id === me ? " me" : ""}">
-      <div class="row" style="justify-content:space-between"><h3>${esc(t.nick)}${t.__id === me ? ' <span class="note">(você)</span>' : ""}</h3><span class="mono">${t.points ?? 0} pts</span></div>
+      <div class="row" style="justify-content:space-between"><h3>${esc(t.nick)}${t.__id === me ? ' <span class="note">(você)</span>' : ""}</h3><span class="mono">${rankStarted() ? t.points ?? 0 : 0} pts</span></div>
       <div class="note">${esc(t.level || "")}${t.adherence != null ? ` · aderência ${t.adherence}%` : ""}${t.streakDays ? ` · ${t.streakDays} dias seguidos` : ""}</div>
       <div class="kv" style="margin:0"><div><span>Condicionamento</span><b>${t.forma != null ? fmtNum(t.forma,1) : "—"}${ev != null ? ` <small class="delta ${ev >= 0 ? "good" : "bad"}">${ev >= 0 ? "▲" : "▼"}${Math.abs(ev)}%</small>` : ""}</b></div><div><span>Semana</span><b>${fmtNum(w.hours||0,1)} h · ${w.sessions ?? 0} treinos</b></div></div>
       ${miniWeeks(t)}
@@ -1933,13 +1982,12 @@ document.addEventListener("submit", e => {
   if (e.target.id === "weighform"){ const w = addWeight($("#w_kg").value); flash(S.view, w ? `Peso registrado: ${fmtNum(w.kg,1)} kg.` : "Informe um peso válido em kg.", !w); }
   if (e.target.id === "logform"){
     const x = readLog();
-    if (!x.min){ flash(S.view, "Informe a duração do treino.", true); return; }
     if (x.sport === "strength" && !x.obs && x.forca.length) x.obs = x.forca.map(f => `${f.nome} ${f.series||""}x${f.reps||""}${f.kg ? " " + f.kg + " kg" : ""}`).join("; ");
     const a = addManualWorkout(x);
     if (!a){ flash(S.view, "Não consegui salvar: confira a data.", true); return; }
     S.showLog = false; S.logSport = null; S.logDate = null;
-    flash(S.view, `Treino salvo: ${SPORTS[x.sport]}, ${x.min} min, esforço ${x.rpe}/10, carga ${Math.round(loadOf(a))} pts.${a.dor ? " Dor registrada para acompanhamento." : ""}`, false);
-    coachNote(true);
+    flash(S.view, `Treino salvo: ${[SPORTS[x.sport], x.min ? `${x.min} min` : "", x.rpe ? `esforço ${x.rpe}/10` : ""].filter(Boolean).join(", ")}.`, false);
+    replanTriedAt = 0; if (needsReplan()) maybeReplan(); else coachNote(true);
   }
   if (e.target.id === "raceform"){
     const r = { name: $("#r_name").value.trim() || "Prova da equipe", date: $("#r_date").value || RACE_DEFAULT.date, time: $("#r_time").value || "06:30", type: $("#r_type").value, label: $("#r_label").value.trim(), place: $("#r_place").value.trim() };
@@ -2007,6 +2055,7 @@ async function boot(){
   cap("sample").then(s => s?.limits?.().then(l => { const prev = S.canImg; S.canImg = !!l?.images; bgRender(prev, S.canImg); }).catch(() => {}));
   await loadMine();
   S.ready = true; render();
+  maybeReplan(); setInterval(maybeReplan, 10*60e3); // pega o domingo 19h mesmo com o app aberto
   db.collection("team").onSnapshot(snap => { const prev = S.team; S.team = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.team); }, () => {});
   db.collection("kudos").onSnapshot(snap => { const prev = S.kudos; S.kudos = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.kudos); }, () => {});
   if (S.profile) saveTeam();
