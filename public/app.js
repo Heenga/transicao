@@ -597,7 +597,7 @@ REGRAS:
 - Use rolo/esteira se o atleta tiver. Dê um pouco mais de frequência ao ponto fraco.
 - Natação em metros com séries (ex: "10x100 no ritmo de prova, 15 s"). Bike e corrida em minutos com zona e esforço.
 - TODA corrida (e a parte de corrida do brick) tem "pace" alvo em min/km, a partir dos ritmos reais do histórico e da zona. Nas etapas de corrida, cite o pace de cada parte (ex.: "6x3 min a 5:10/km, 1 min trote").
-- Sem histórico ou sem testes: comece conservador e marque testes.
+- TESTES DE NIVELAMENTO: use as referências dos testes (ritmos, FC, nível, atenção) para definir zonas, paces e volume de cada modalidade. Modalidade com teste "não fez" ou "refazer": marque o teste dela nesta semana como a primeira sessão daquela modalidade, com titulo começando por "Teste de nivelamento" e etapas iguais ao protocolo do app (corrida: 20 min no máximo sustentável, pode caminhar; natação: máximo contínuo até 400 m, e se completar, 400 m e 200 m fortes; bike: 20 min no máximo sustentável). Nível Iniciante: comece bem conservador (corrida intercalada com caminhada, natação com técnica e respiração).
 - Atleta amador: "titulo" sempre diz a modalidade e o que é, sem sigla solta (ex.: "Natação: teste de ritmo (400 m e 200 m)", não "Teste de CSS"). Em testes, as etapas explicam como fazer e o que anotar. Sigla técnica (CSS, FTP, Z2) só com explicação curta entre parênteses na primeira vez.
 - Queixas: reduza impacto/volume na modalidade que agrava e inclua reabilitação progressiva na força (ex.: Aquiles → excêntrico/isométrico de panturrilha; dor ≤3/10 sem piora no dia seguinte é aceitável). Nunca diagnostique.
 
@@ -651,7 +651,7 @@ function needsReplan(){
   const w = planWindow(); if (!w.aberta) return false;
   if (!S.plan) return true;
   const todayK = dayKey(new Date());
-  if (!S.plan.fim || S.plan.fim < dayKey(w.to)) return true;
+  if (S.plan.forceReplan || !S.plan.fim || S.plan.fim < dayKey(w.to)) return true;
   const seen = new Set(S.plan.basis || []);
   if (S.plan.basis && S.activities.some(a => a.sport !== "other" && new Date(a.date) >= addDays(new Date(), -3) && !seen.has(a.id))) return true;
   const gen = S.plan.genDay || todayK, map = planDayMap(S.plan);
@@ -684,6 +684,7 @@ Prova: ${JSON.stringify(raceForAI())} · faltam ${daysToRace()} dias · fase ${J
 Atleta: ${JSON.stringify(profileForAI())}
 Preferência por dia: ${({ "1":"no máximo 1 modalidade por dia", "2":"no máximo 2 sessões por dia", "1+gym":"1 modalidade por dia; força pode ser no mesmo dia", "todas":"pode combinar várias sessões no dia" })[S.profile?.porDia] || "não informada"} · fim de semana/feriado: ${S.profile?.fds === "Sim" ? "pode juntar modalidades (longão, brick)" : "mesma regra"}
 Queixas ativas: ${JSON.stringify(complaintsForAI())}
+Testes de nivelamento: ${JSON.stringify(testsForAI())}
 Planejado × feito (7 dias): ${JSON.stringify(planVsDone(7))}
 Semana até agora: ${JSON.stringify(semanaAtual)}
 Previsto antes para estes dias: ${JSON.stringify(anteriores)}
@@ -907,6 +908,7 @@ Atleta: ${JSON.stringify(profileForAI())}
 Histórico: ${JSON.stringify(summaryForAI())}
 Plano: ${S.plan ? `fase ${S.plan.fase}, aderência ${adherence() ?? "—"}%. Hoje: ${JSON.stringify(todaySessions().map(x => ({ sport: x.sport, titulo: x.titulo, min: x.min, zona: x.zona })))}` : "nenhum plano gerado ainda"}
 Queixas: ${JSON.stringify(complaintsForAI())}
+Testes de nivelamento: ${JSON.stringify(testsForAI())}
 Condicionamento: ${JSON.stringify(fitnessForAI())}
 Recuperação (7 dias): ${JSON.stringify((S.checkins||[]).slice(-7))}
 Evoluções comprovadas: ${JSON.stringify(highlights().map(x => x.t))}
@@ -1288,6 +1290,79 @@ function nextSession(){
 }
 const relDay = off => off === 0 ? "Hoje" : off === 1 ? "Amanhã" : null;
 function agoText(d){ const n = Math.floor((new Date(new Date().toDateString()) - new Date(new Date(d).toDateString()))/864e5); return n === 0 ? "hoje" : n === 1 ? "ontem" : `há ${n} dias`; }
+/* ---------- testes de nivelamento: medem de onde cada um parte em cada modalidade ---------- */
+const mmss = sec => { sec = Math.round(sec); return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}`; };
+const parseMMSS = v => { const m = String(v||"").trim().match(/^(\d{1,3})(?:[:.,](\d{1,2}))?$/); return m ? (+m[1])*60 + (+(m[2]||0)) : null; };
+const RETEST_DAYS = 56; // refazer a cada ~8 semanas
+const TESTS = {
+  run: { nome: "Corrida", dur: "20 min", como: [
+      "Aqueça 10 min caminhando rápido ou trotando bem leve.",
+      "Por 20 min, vá o mais longe que conseguir num ritmo que dá para manter até o fim. Pode alternar trote e caminhada se precisar — sem problema.",
+      "Use lugar plano (pista, parque ou esteira a 1%). Anote a distância, se precisou caminhar e, se tiver relógio, a FC média.",
+      "Desaqueça 5–10 min caminhando."] },
+  swim: { nome: "Natação", dur: "~30 min", como: [
+      "Aqueça 100–200 m bem solto (pode parar na borda).",
+      "Nade o máximo que conseguir SEM PARAR, em ritmo confortável, até no máximo 400 m. Anote quantos metros nadou.",
+      "Se conseguiu os 400 m: descanse 5–10 min, nade 400 m forte e anote o tempo; descanse 10 min e nade 200 m forte e anote o tempo.",
+      "Não conseguiu os 400 m? Tudo bem: o primeiro objetivo vira técnica e respiração."] },
+  bike: { nome: "Bike", dur: "20 min", como: [
+      "Aqueça 10–15 min leve, com 3 acelerações de 30 s.",
+      "Pedale 20 min no maior esforço que dá para manter até o fim, em rolo ou percurso plano e sem semáforo.",
+      "Anote a velocidade média (ou a potência, se o rolo/bike medir) e a FC média, se tiver.",
+      "Desaqueça 10 min leve."] },
+};
+const testDue = t => !t || (Date.now() - new Date(t.data + "T12:00:00")) / 864e5 > RETEST_DAYS;
+/** Resultado do teste → nível, números de referência e pontos de atenção. */
+function testResult(sp, t){
+  if (!t) return null;
+  if (sp === "run"){
+    const pace = t.dist_km ? 1200 / t.dist_km : null; // s/km nos 20 min
+    if (!pace) return null;
+    const nivel = t.caminhou || pace > 480 ? "Iniciante" : pace > 390 ? "Base" : pace > 300 ? "Intermediário" : "Avançado";
+    return { nivel, linhas: [`Ritmo no teste: ${mmss(pace)}/km`, `Ritmo de limiar ≈ ${mmss(pace * 1.03)}/km`, `Z2 (leve) ≈ ${mmss(pace * 1.03 + 60)}–${mmss(pace * 1.03 + 90)}/km`, t.hr ? `FC de limiar ≈ ${Math.round(t.hr * 0.97)} bpm` : ""].filter(Boolean),
+      atencao: t.caminhou ? "Começar com corrida intercalada com caminhada e subir aos poucos o tempo correndo." : nivel === "Iniciante" ? "Volume de corrida baixo no começo: é a modalidade com mais risco de lesão." : "" };
+  }
+  if (sp === "swim"){
+    const css = t.t400 && t.t200 && t.t400 > t.t200 ? (t.t400 - t.t200) / 2 : null; // s/100 m
+    const nivel = !t.continuo_m || t.continuo_m < 200 ? "Iniciante" : !css ? "Base" : css > 150 ? "Base" : css > 115 ? "Intermediário" : "Avançado";
+    return { nivel, linhas: [t.continuo_m ? `Nada ${t.continuo_m} m sem parar` : "", css ? `Ritmo de referência (CSS) ≈ ${mmss(css)}/100 m` : "", css ? `Séries leves ≈ ${mmss(css + 10)}–${mmss(css + 15)}/100 m` : ""].filter(Boolean),
+      atencao: !t.continuo_m || t.continuo_m < 200 ? "Prioridade: técnica, respiração e nadar contínuo. Sessões curtas e frequentes." : !css ? "Próximo passo: completar 400 m contínuos para medir o ritmo." : "" };
+  }
+  if (sp === "bike"){
+    const kg = Number(S.profile?.peso) || null, ftp = t.watts ? Math.round(t.watts * 0.95) : null, wkg = ftp && kg ? ftp / kg : null;
+    const nivel = wkg != null ? (wkg < 2 ? "Iniciante" : wkg < 2.8 ? "Base" : wkg < 3.5 ? "Intermediário" : "Avançado")
+      : t.kmh ? (t.kmh < 22 ? "Iniciante" : t.kmh < 28 ? "Base" : t.kmh < 33 ? "Intermediário" : "Avançado") : "Base";
+    return { nivel, linhas: [t.kmh ? `Velocidade no teste: ${fmtNum(t.kmh,1)} km/h` : "", ftp ? `FTP ≈ ${ftp} W${wkg ? ` (${fmtNum(wkg,1)} W/kg)` : ""}` : "", t.hr ? `FC de limiar ≈ ${Math.round(t.hr * 0.95)} bpm · Z2 até ${Math.round(t.hr * 0.95 * 0.89)} bpm` : ""].filter(Boolean),
+      atencao: nivel === "Iniciante" ? "Começar com pedais leves e frequentes, cadência solta (85–95 rpm)." : "" };
+  }
+  return null;
+}
+function testsForAI(){
+  const t = S.profile?.testes || {};
+  return Object.fromEntries(["swim","bike","run"].map(sp => { const r = testResult(sp, t[sp]); return [TESTS[sp].nome, r ? { data: t[sp].data, nivel: r.nivel, referencias: r.linhas, atencao: r.atencao || undefined, refazer: testDue(t[sp]) || undefined } : "não fez"]; }));
+}
+function testFormHTML(sp){
+  const t = S.profile?.testes?.[sp] || {}, f = (id, label, attrs, ph, v) => `<div class="fld"><label for="${id}">${label}</label><input id="${id}" ${attrs} placeholder="${ph}" value="${v ?? ""}"></div>`;
+  const fields = sp === "run" ? f("t_dist", "Distância em 20 min (km)", 'type="number" inputmode="decimal" min="0" step="0.01"', "3,2", t.dist_km) + `<div class="fld"><label>Precisou caminhar?</label>${pills("t_cam", ["Não","Sim"], t.caminhou ? "Sim" : "Não")}</div>` + f("t_hr", "FC média (opcional)", 'type="number" inputmode="numeric" min="60" max="220"', "bpm", t.hr)
+    : sp === "swim" ? f("t_cont", "Metros nadados sem parar", 'type="number" inputmode="numeric" min="0" step="25"', "ex: 150", t.continuo_m) + f("t_400", "Tempo dos 400 m (opcional)", 'inputmode="numeric"', "mm:ss", t.t400 ? mmss(t.t400) : "") + f("t_200", "Tempo dos 200 m (opcional)", 'inputmode="numeric"', "mm:ss", t.t200 ? mmss(t.t200) : "")
+    : f("t_kmh", "Velocidade média (km/h)", 'type="number" inputmode="decimal" min="0" step="0.1"', "25", t.kmh) + f("t_w", "Potência média (W, opcional)", 'type="number" inputmode="numeric" min="0"', "se medir", t.watts) + f("t_hr", "FC média (opcional)", 'type="number" inputmode="numeric" min="60" max="220"', "bpm", t.hr);
+  return `<form class="testform" id="testform" data-sport="${sp}">
+    <div class="eyebrow" style="margin-bottom:6px">Como fazer · ${TESTS[sp].dur}</div>
+    <ol class="steps">${TESTS[sp].como.map(x => `<li><span>${esc(x)}</span></li>`).join("")}</ol>
+    <div class="f" style="margin-top:12px">${fields}<div class="fld"><label for="t_data">Data do teste</label><input id="t_data" type="date" value="${t.data || dayKey(new Date())}" max="${dayKey(new Date())}"></div></div>
+    <div class="row" style="margin-top:12px"><button class="btn" type="submit">Salvar resultado</button><button class="btn ghost" type="button" data-testopen="">Fechar</button></div></form>`;
+}
+function testsHTML(){
+  const t = S.profile?.testes || {}, pend = ["run","swim","bike"].filter(sp => testDue(t[sp]));
+  return `<section class="panel tests"><div class="ph"><h2>Testes de nivelamento</h2><span class="note">${pend.length ? `${3 - pend.length} de 3 feitos` : "refaça a cada 8 semanas"}</span></div>
+    ${pend.length ? `<p class="note" style="margin:0 0 12px">Mostram de onde você parte em cada modalidade e onde precisa de atenção. O coach usa os resultados para montar os treinos e as suas zonas. Serve para quem está começando: dá para caminhar ou parar.</p>` : ""}
+    <div class="testgrid">${["run","swim","bike"].map(sp => { const r = testResult(sp, t[sp]), open = S.testOpen === sp;
+      return `<div class="testc c-${sp}${open ? " open" : ""}"><div class="row" style="justify-content:space-between"><b>${TESTS[sp].nome}</b>${r ? `<span class="tag c-${sp}">${r.nivel}</span>` : `<span class="note">pendente</span>`}</div>
+        ${r ? `<ul class="tl">${r.linhas.map(x => `<li>${esc(x)}</li>`).join("")}</ul>${r.atencao ? `<p class="note warnline" style="margin:6px 0 0">${esc(r.atencao)}</p>` : ""}<div class="note" style="margin-top:6px">Feito em ${fmtDate(t[sp].data + "T12:00:00")}${testDue(t[sp]) ? " · hora de refazer" : ""}</div>` : ""}
+        ${open ? testFormHTML(sp) : `<button class="btn ${r && !testDue(t[sp]) ? "ghost " : ""}sm" type="button" data-testopen="${sp}" style="margin-top:8px">${r ? "Refazer / corrigir" : "Como fazer e registrar"}</button>`}</div>`; }).join("")}</div>
+  </section>`;
+}
+
 /* ---------- calorias da semana em copos de chope ---------- */
 const MET = { run: 9.8, bike: 7.5, swim: 7, brick: 8.5, strength: 5, other: 3.5 };
 const KCAL_CHOPE = 125; // copo de chope de 300 ml
@@ -1669,6 +1744,7 @@ function viewPainel(){
   ${msgHTML("painel")}
   ${S.showLog ? `<div style="margin-bottom:16px">${logFormHTML()}</div>` : ""}
   ${highlightsHTML()}
+  ${["run","swim","bike"].some(sp => testDue(S.profile?.testes?.[sp])) ? testsHTML() : ""}
   ${beerHTML()}
   ${!ckDone ? `<div class="first">${checkinHTML()}</div>${weighCard}` : ""}
 
@@ -1715,7 +1791,7 @@ function viewTreinos(){
   const head = `<div class="hero"><div><div class="eyebrow">Treinos${S.plan ? ` · fase ${esc(S.plan.fase || "")}` : ""}</div><h1>Planejado e feito</h1><p>${S.plan ? esc(S.plan.resumo || "") : "Seus treinos da semana, reajustados a cada treino feito, e tudo o que você já treinou."}</p></div>${actions}</div>
     ${msgHTML("treinos")}${msgHTML("plano")}
     ${S.showLog ? `<div style="margin-bottom:16px">${logFormHTML()}</div>` : ""}`;
-  return head + calendarHTML() + planSectionHTML() + doneTableHTML() + metodoHTML();
+  return head + calendarHTML() + planSectionHTML() + doneTableHTML() + `<div style="margin-top:16px">${testsHTML()}</div>` + metodoHTML();
 }
 function sessionsOn(date){
   if (!S.plan) return [];
@@ -2061,6 +2137,7 @@ document.addEventListener("click", e => {
   if (e.target.closest("[data-swapclose]")){ S.swap = null; render(); return; }
   const op = e.target.closest("[data-open]"); if (op){ S.openSess = op.dataset.open; S.move = null; S.swap = null; render(); return; }
   if (e.target.closest("[data-closesheet]")){ S.openSess = null; S.move = null; S.swap = null; render(); return; }
+  const to = e.target.closest("[data-testopen]"); if (to){ S.testOpen = to.dataset.testopen || null; render(); return; }
   const mo = e.target.closest("[data-move]"); if (mo){ S.move = S.move === mo.dataset.move ? null : mo.dataset.move; render(); return; }
   const mt = e.target.closest("[data-moveto]"); if (mt){ movePlanned(mt.dataset.ref, +mt.dataset.moveto, false); return; }
   const sd = e.target.closest("[data-swapday]"); if (sd){ movePlanned(sd.dataset.ref, +sd.dataset.swapday, true); return; }
@@ -2123,6 +2200,18 @@ document.addEventListener("submit", e => {
       go("painel");
       (async () => { if (!S.activities.length) await syncStrava(); if (!S.plan) await generatePlan(); S.msg.painel = null; coachNote(true); render(); })();
     } else flash("dados", "Perfil salvo.", false);
+  }
+  if (e.target.id === "testform"){
+    const sp = e.target.dataset.sport, num = id => { const x = parseFloat(String($("#" + id)?.value || "").replace(",", ".")); return isNaN(x) ? null : x; };
+    const t = { data: $("#t_data").value || dayKey(new Date()) };
+    if (sp === "run"){ t.dist_km = num("t_dist"); t.caminhou = pick("t_cam") === "Sim"; t.hr = num("t_hr"); if (!t.dist_km){ flash(S.view, "Informe a distância percorrida nos 20 min.", true); return; } }
+    if (sp === "swim"){ t.continuo_m = num("t_cont"); t.t400 = parseMMSS($("#t_400").value); t.t200 = parseMMSS($("#t_200").value); if (t.continuo_m == null && !t.t400){ flash(S.view, "Informe quantos metros nadou sem parar.", true); return; } }
+    if (sp === "bike"){ t.kmh = num("t_kmh"); t.watts = num("t_w"); t.hr = num("t_hr"); if (!t.kmh && !t.watts){ flash(S.view, "Informe a velocidade média (ou a potência).", true); return; } }
+    S.profile = { ...S.profile, testes: { ...(S.profile.testes || {}), [sp]: Object.fromEntries(Object.entries(t).filter(([, v]) => v != null && v !== "")) } };
+    S.testOpen = null; save("profile", S.profile);
+    const r = testResult(sp, S.profile.testes[sp]);
+    flash(S.view, `Teste de ${TESTS[sp].nome.toLowerCase()} salvo: nível ${r?.nivel || "—"}. O coach vai usar isso no próximo ajuste da semana.`, false);
+    replanTriedAt = 0; if (S.plan) S.plan.forceReplan = true; maybeReplan();
   }
   if (e.target.id === "checkin"){
     const n = id => { const x = parseFloat($("#" + id).value); return isNaN(x) ? null : x; };
