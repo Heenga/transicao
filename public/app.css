@@ -2,17 +2,17 @@
 /* Layout: régua de prova — cabeçalho com abas T1/T2, três faixas por modalidade, depois plano + coach lado a lado */
 :root{
   --bg:#F3EFE4; --surface:#FFFCF5; --ink:#14203D; --muted:#5C6478; --line:#E2DCCD; --soft:#EBE5D6;
-  --swim:#1C7DA6; --bike:#B97E0E; --run:#D04F26; --ok:#2E8a57; --warn:#B7791F; --bad:#C0392B;
+  --swim:#1C7DA6; --bike:#7B4FB8; --run:#D04F26; --ok:#2E8a57; --warn:#B7791F; --bad:#C0392B;
   --display:"Archivo","Helvetica Neue",Arial,sans-serif;
   --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0B1120; --surface:#121A2D; --ink:#EFE9DA; --muted:#8F97AA; --line:#222C44; --soft:#192238;
-  --swim:#4FB2DA; --bike:#E2A93A; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}}
+  --swim:#4FB2DA; --bike:#B08BEA; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0B1120; --surface:#121A2D; --ink:#EFE9DA; --muted:#8F97AA; --line:#222C44; --soft:#192238;
-  --swim:#4FB2DA; --bike:#E2A93A; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}
+  --swim:#4FB2DA; --bike:#B08BEA; --run:#F0784F; --ok:#4CC27F; --warn:#E0A84A; --bad:#EF6A5B; color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);-webkit-font-smoothing:antialiased}
 .wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -385,3 +385,17 @@ table.items{font-size:13px;margin-top:6px}
 .hm span{font-size:12.5px;color:var(--muted)}
 .mvrow{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
 .swappanel .chip small{color:var(--muted);font-weight:400}
+.sessbtn{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;border-top:0;border-right:0;border-bottom:0}
+.sessbtn:hover{background:color-mix(in srgb,var(--c,var(--muted)) 15%,transparent)}
+.sessbtn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sessbtn .more{display:block;margin-top:5px;font:600 11px/1 var(--body);color:var(--c,var(--ink))}
+.sheet-bg{position:fixed;inset:0;z-index:40;background:rgba(10,16,30,.45)}
+.sheet{position:fixed;z-index:41;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;background:var(--surface);color:var(--ink);border-radius:16px;border-top:5px solid var(--c,var(--ink));padding:18px 18px 22px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.sheet-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.sheet-h h2{margin:4px 0 4px;font-size:22px}
+.sheet .shh{font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+.sheet .steps li{font-size:13.5px}
+.sheet .tip{margin-top:14px}
+.sheet .mvrow{margin-top:16px}
+body.sheet-open{overflow:hidden}
+@media (max-width:520px){.sheet{left:0;right:0;top:auto;bottom:0;transform:none;width:auto;max-height:85vh;border-radius:16px 16px 0 0;padding-bottom:calc(22px + env(safe-area-inset-bottom,0px))}}

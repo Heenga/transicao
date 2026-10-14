@@ -664,11 +664,13 @@ REGRAS:
 - FIM DE SEMANA E FERIADOS: ${S.profile?.fds === "Sim" ? "pode treinar todas as modalidades no mesmo dia (use para longão, brick e treinos combinados)" : "segue a mesma regra dos outros dias"}.
 - Use rolo/esteira se o atleta tiver: rolo ${S.profile?.rolo || "?"}, corrida ${S.profile?.corre || "?"}. Ponto fraco: ${S.profile?.fraco || "?"} (dê um pouco mais de frequência a ele).
 - Natação em metros com séries (ex: "10x100 no CSS, 15 s"). Bike e corrida em minutos com zona e RPE.
+- TODA corrida (e a parte de corrida do brick) tem "pace" alvo em min/km, calculado a partir dos ritmos reais do histórico e da zona (ex.: Z2 fácil um pouco mais lento que o ritmo médio atual dele). Nas etapas de corrida, cite o pace de cada parte (ex.: "6x3 min a 5:10/km, 1 min trote").
 - Se o histórico estiver vazio ou sem testes, comece conservador e marque testes nestes primeiros dias.
+- O atleta é amador: "titulo" sempre diz a modalidade e o que é, sem sigla solta (ex.: "Natação: teste de ritmo (400 m e 200 m)", não "Teste de CSS"). Em testes, as etapas explicam passo a passo como fazer e o que anotar (tempo, FC, pace). Sigla técnica (CSS, FTP, Z2, RPE) só com explicação curta entre parênteses na primeira vez.
 - QUEIXAS ATIVAS: ${JSON.stringify(activeComplaints())}. Para cada queixa, adapte: reduza impacto/volume na modalidade que agrava, inclua exercícios de reabilitação progressiva na força (ex.: tendão de Aquiles → excêntrico/isométrico de panturrilha com joelho estendido e flexionado; dor ≤3/10 durante e sem piora no dia seguinte é aceitável). Nunca diagnostique.
 
 Responda SÓ com JSON neste formato:
-{"avaliacao":"2 a 3 frases, falando com o atleta: como foram os últimos treinos (com números) e o que você ajustou por causa disso. Se ainda não houver treinos, diga como vai começar.","resumo":"1 frase sobre a direção dos próximos dias","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semana":{"foco":"texto curto sobre esta semana","carga":"leve|moderada|alta|recuperação"},"dias":[{"data":"YYYY-MM-DD","sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","movido":false,"min":60,"dist":"2.000 m ou 30 km ou vazio","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}
+{"avaliacao":"2 a 3 frases, falando com o atleta: como foram os últimos treinos (com números) e o que você ajustou por causa disso. Se ainda não houver treinos, diga como vai começar.","resumo":"1 frase sobre a direção dos próximos dias","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semana":{"foco":"texto curto sobre esta semana","carga":"leve|moderada|alta|recuperação"},"dias":[{"data":"YYYY-MM-DD","sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","movido":false,"min":60,"dist":"2.000 m ou 30 km ou vazio","pace":"6:10–6:30/km (só corrida e brick; vazio nas outras)","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}
 "dias" tem exatamente os ${nDias} dias pedidos, em ordem. Descanso = sessoes: [].
 "exercicios" só nas sessões strength (4 a 7 exercícios). "etapas" em toda sessão que não for força: cada etapa com fase, minutos e descrição curta (até 70 caracteres). Não use "detalhe" longo.`;
   try {
@@ -1006,26 +1008,42 @@ async function swapAI(){
   } catch { flash(S.view, "Não consegui buscar mais opções agora.", true); }
   if (S.swap) S.swap.loading = false; render();
 }
-function sessHTML(s, date){
-  const sp = s.sport || "other", done = date && isDone(s, date);
+/** Linha curta do treino: 45 min · 1.200 m · Z1 · recuperação, bem leve */
+function sessMeta(s){
   const z = String(s.zona || "").toUpperCase().match(/Z[1-5]/)?.[0];
-  const chips = [s.min ? `<span><b>${s.min}</b> min</span>` : "", s.dist ? `<span>${esc(s.dist)}</span>` : "", z ? `<span title="${ZONA_TXT[z]}"><b>${z}</b> · ${ZONA_TXT[z]}</span>` : (s.zona ? `<span>${esc(s.zona)}</span>` : "")].filter(Boolean).join("");
+  return [s.min ? `${s.min} min` : "", s.dist ? String(s.dist) : "", s.pace ? `pace ${String(s.pace).replace(/^pace\s*/i, "")}` : "", z ? `${z} · ${ZONA_TXT[z]}` : (s.zona || "")].filter(Boolean).join(" · ");
+}
+/** Card compacto; o passo a passo abre no painel de detalhes ao tocar. */
+function sessHTML(s, date){
+  const sp = s.sport || "other", done = date && isDone(s, date), ref = planRefOf(s), meta = [SPORTS[sp], sessMeta(s)].filter(Boolean).join(" · ");
+  const inner = `<div class="t">${esc(s.titulo || SPORTS[sp])}</div>${meta ? `<div class="m">${esc(meta)}</div>` : ""}${s.movido ? `<div class="m">movido por você</div>` : ""}`;
+  return ref ? `<button type="button" class="sess sessbtn c-${sp}${done ? " done" : ""}" data-open="${ref}" data-date="${date ? dayKey(date) : ""}" aria-haspopup="dialog">${inner}<span class="more" aria-hidden="true">Ver treino ›</span></button>`
+             : `<div class="sess c-${sp}${done ? " done" : ""}">${inner}</div>`;
+}
+/** Painel com o treino completo: etapas, dica, exercícios (com troca) e mudar de dia. */
+function sessSheetHTML(){
+  const ref = S.openSess, s = ref && sessByRef(ref);
+  if (!s) return "";
+  const [wi, dia] = ref.split(".").map(Number), date = planDate(wi, dia), sp = s.sport || "other", done = isDone(s, date);
   const etapas = Array.isArray(s.etapas) && s.etapas.length
     ? s.etapas.map(e => `<li><b>${esc(e.fase || "")}</b>${e.min ? ` <span class="mono">${e.min} min</span>` : ""}${e.desc ? `<span>${esc(e.desc)}</span>` : ""}</li>`).join("")
     : (s.sport === "strength" ? "" : splitSteps(s.detalhe).map(x => `<li><span>${esc(x)}</span></li>`).join(""));
-  const ref = planRefOf(s);
-  const ex = Array.isArray(s.exercicios) && s.exercicios.length ? `<ul class="ex">${s.exercicios.map((x, ei) => {
-    const open = ref && S.swap && S.swap.ref === ref && S.swap.ei === ei;
+  const ex = Array.isArray(s.exercicios) && s.exercicios.length ? `<h3 class="shh">Exercícios</h3><ul class="ex">${s.exercicios.map((x, ei) => {
+    const open = S.swap && S.swap.ref === ref && S.swap.ei === ei;
     return `<li><span>${esc(x.nome)}${x.trocado ? ` <small class="note">(no lugar de ${esc(x.trocado)})</small>` : ""}</span><b>${esc([x.series && x.reps ? `${x.series}×${x.reps}` : x.series || x.reps, x.carga].filter(Boolean).join(" · "))}</b>${x.obs ? `<em>${esc(x.obs)}</em>` : ""}
-      ${ref ? `<button type="button" class="swapbtn" data-swap="${ref}" data-ei="${ei}" aria-expanded="${!!open}">Trocar</button>` : ""}
+      <button type="button" class="swapbtn" data-swap="${ref}" data-ei="${ei}" aria-expanded="${!!open}">Trocar</button>
       ${open ? swapPanelHTML(x, ref, ei) : ""}</li>`; }).join("")}</ul>` : "";
-  const movable = ref && !done && s.sport !== "rest" && (() => { const [wi, dia] = ref.split(".").map(Number); return dayKey(planDate(wi, dia)) >= dayKey(new Date()); })();
-  const mv = movable ? `<div class="mvrow"><button type="button" class="swapbtn" data-move="${ref}" aria-expanded="${S.move === ref}">Mudar dia</button>${s.movido ? `<span class="note">movido por você</span>` : ""}</div>${S.move === ref ? movePanelHTML(ref) : ""}` : "";
-  return `<div class="sess c-${sp}${done ? " done" : ""}"><div class="t">${esc(s.titulo || SPORTS[sp])}</div>
-    ${chips ? `<div class="smeta">${chips}</div>` : ""}
-    ${etapas ? `<ol class="steps">${etapas}</ol>` : ""}
-    ${s.sport === "strength" && s.detalhe ? `<div class="d">${esc(s.detalhe)}</div>` : ""}
-    ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}${mv}</div>`;
+  const movable = !done && dayKey(date) >= dayKey(new Date());
+  return `<div class="sheet-bg" data-closesheet></div>
+  <div class="sheet c-${sp}" role="dialog" aria-modal="true" aria-labelledby="sheet_t">
+    <div class="sheet-h"><div><div class="eyebrow">${SPORTS[sp]} · ${(t => t.charAt(0).toUpperCase()+t.slice(1))(date.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"short"}))}${done ? " · feito ✓" : ""}</div>
+      <h2 id="sheet_t">${esc(s.titulo || SPORTS[sp])}</h2>${sessMeta(s) ? `<div class="note">${esc(sessMeta(s))}</div>` : ""}</div>
+      <button type="button" class="btn ghost sm" data-closesheet aria-label="Fechar">✕</button></div>
+    ${etapas ? `<h3 class="shh">Passo a passo</h3><ol class="steps">${etapas}</ol>` : ""}
+    ${s.sport === "strength" && s.detalhe ? `<p class="d">${esc(s.detalhe)}</p>` : ""}
+    ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}
+    ${movable ? `<div class="mvrow"><button type="button" class="btn ghost sm" data-move="${ref}" aria-expanded="${S.move === ref}">Mudar dia</button>${s.movido ? `<span class="note">movido por você</span>` : ""}</div>${S.move === ref ? movePanelHTML(ref) : ""}` : ""}
+  </div>`;
 }
 /* ---------- mudar treino de dia (o atleta mexe no plano) ---------- */
 function movePanelHTML(ref){
@@ -1045,7 +1063,7 @@ function movePlanned(ref, toDia, swapDay){
   const [wi, dia, i] = ref.split(".").map(Number), from = planDay(wi, dia), to = planDay(wi, toDia);
   if (swapDay){ const a = from.sessoes, b = to.sessoes; from.sessoes = b; to.sessoes = a; [...a, ...b].forEach(x => { if (x.sport !== "rest") x.movido = true; }); }
   else { const [s] = from.sessoes.splice(i, 1); if (!s) return; s.movido = true; to.sessoes = [...to.sessoes.filter(x => x.sport !== "rest"), s]; }
-  S.plan.editedAt = new Date().toISOString(); S.move = null; save("plan", S.plan);
+  S.plan.editedAt = new Date().toISOString(); S.move = null; S.openSess = null; save("plan", S.plan);
   flash(S.view, swapDay ? `Dias trocados: ${DOW[dia]} ⇄ ${DOW[toDia]}.` : `Treino movido para ${DOW[toDia]} ${planDate(wi, toDia).getDate()}.`, false);
 }
 function complaintsHTML(withActions){
@@ -1902,6 +1920,8 @@ function render(){
   $("#tabs").hidden = !S.ready || onboarding;
   const rb = document.querySelector(".reloadbtn"); if (rb){ rb.hidden = !S.ready || !S.db; rb.disabled = !!S.busy.reload; }
   app.innerHTML = !S.ready ? app.innerHTML : onboarding ? viewOnboarding() : ({ painel:viewPainel, treinos:viewTreinos, coach:viewCoach, dieta:viewDieta, equipe:viewEquipe, dados:viewDados })[S.view]();
+  let sh = $("#sheet"); if (!sh){ sh = document.createElement("div"); sh.id = "sheet"; document.body.append(sh); }
+  sh.innerHTML = S.ready && S.openSess ? sessSheetHTML() : ""; document.body.classList.toggle("sheet-open", !!sh.innerHTML);
   const t = $("#chatin"); if (t){ t.value = keepChat; if (hadFocus) t.focus({ preventScroll:true }); scrollChat(); }
   if (S.view === "painel") window.scrollTo(0, y);
 }
@@ -1935,6 +1955,8 @@ document.addEventListener("click", e => {
   if (e.target.closest("[data-swapai]")){ swapAI(); return; }
   if (e.target.closest("[data-swapcustom]")){ const v = e.target.closest(".swappanel")?.querySelector(".swapcustom")?.value.trim(); if (v) applySwap(v); return; }
   if (e.target.closest("[data-swapclose]")){ S.swap = null; render(); return; }
+  const op = e.target.closest("[data-open]"); if (op){ S.openSess = op.dataset.open; S.move = null; S.swap = null; render(); return; }
+  if (e.target.closest("[data-closesheet]")){ S.openSess = null; S.move = null; S.swap = null; render(); return; }
   const mo = e.target.closest("[data-move]"); if (mo){ S.move = S.move === mo.dataset.move ? null : mo.dataset.move; render(); return; }
   const mt = e.target.closest("[data-moveto]"); if (mt){ movePlanned(mt.dataset.ref, +mt.dataset.moveto, false); return; }
   const sd = e.target.closest("[data-swapday]"); if (sd){ movePlanned(sd.dataset.ref, +sd.dataset.swapday, true); return; }
@@ -2025,7 +2047,7 @@ document.addEventListener("submit", e => {
 });
 function updateLogPreview(){ const p = $("#l_preview"); if (!p) return; const x = readLog(); p.innerHTML = logPreviewHTML(x); const z = $("#l_zone"); if (z) z.textContent = x.rpe ? `${ZONA_RPE(x.rpe)} · ${RPE[x.rpe]}` : ""; }
 document.addEventListener("input", e => { if (e.target.closest?.("#logform")) updateLogPreview(); });
-document.addEventListener("keydown", e => { if (e.target.id === "chatin" && e.key === "Enter" && !e.shiftKey){ e.preventDefault(); $("#chatform").requestSubmit(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && S.openSess){ S.openSess = null; S.move = null; S.swap = null; render(); return; } if (e.target.id === "chatin" && e.key === "Enter" && !e.shiftKey){ e.preventDefault(); $("#chatform").requestSubmit(); } });
 document.addEventListener("change", async e => {
   if (e.target.dataset?.rpesel && e.target.value){ const act = S.activities.find(x => x.id === e.target.dataset.rpesel); if (act){ act.rpe = +e.target.value; persistActivities(); render(); } return; }
   if (e.target.name === "q_lesao"){ const q = $("#q_lesao_qual"); if (q){ q.hidden = e.target.value !== "Sim"; if (!q.hidden) q.focus(); } return; }
