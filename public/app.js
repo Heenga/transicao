@@ -1962,13 +1962,15 @@ function actRowsHTML(xs, planned){
     </tbody></table></div>`;
 }
 function doneTableHTML(){
-  const planned = S.activities.filter(isPlanned).slice(0, 30), extra = S.activities.filter(a => !isPlanned(a)).slice(0, 30);
+  const planned = S.activities.filter(isPlanned).slice(0, 30), extra = S.activities.filter(a => !isPlanned(a));
   const nP = S.activities.filter(isPlanned).length, nE = S.activities.length - nP;
   return `<section class="panel" style="margin-top:16px"><div class="ph"><h2>Treinos realizados</h2><span class="note">${nP} do plano · aderência ${adherence() ?? "—"}%</span></div>
     ${planned.length ? actRowsHTML(planned, true) : `<p class="note" style="margin:0">${S.plan ? "Quando você fizer um treino planejado, ele aparece aqui. O app reconhece pela modalidade e pelo dia; no registro manual, escolha o treino do plano." : "Gere o plano para começar a contar os treinos."}</p>`}
   </section>
   <section class="panel" style="margin-top:16px"><div class="ph"><h2>Atividades fora do plano</h2><span class="note">${nE} no histórico · caminhadas, treinos extras, outros esportes</span></div>
-    ${extra.length ? actRowsHTML(extra, false) : `<p class="note" style="margin:0">Nada fora do plano.</p>`}
+    ${!extra.length ? `<p class="note" style="margin:0">Nada fora do plano.</p>`
+      : `${actRowsHTML(S.showExtra ? extra : extra.slice(0, 3), false)}
+        ${extra.length > 3 ? `<button class="btn ghost sm" data-act="toggleextra" style="margin-top:10px">${S.showExtra ? "Mostrar menos" : `Ver todas (${extra.length})`}</button>` : ""}`}
   </section>`;
 }
 function planSectionHTML(){
@@ -2368,6 +2370,7 @@ document.addEventListener("click", e => {
      addexrow: () => { $("#l_ex")?.insertAdjacentHTML("beforeend", strengthRow()); },
      ivpush: () => pushToIntervals(),
      ivoff: async () => { await TRI.api("/api/intervals/disconnect", { method: "POST" }).catch(() => {}); TRI.me.intervals = { connected: false }; flash(S.view, "intervals.icu desconectado. Os treinos já enviados continuam lá.", false); },
+     toggleextra: () => { S.showExtra = !S.showExtra; render(); },
      clearchat: () => { S.chat = []; save("chat", { messages: [] }); render(); } })[a.dataset.act]?.();
 });
 document.addEventListener("submit", e => {
