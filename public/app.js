@@ -1073,6 +1073,11 @@ function sessSheetHTML(){
     ${etapas ? `<h3 class="shh">Passo a passo</h3><ol class="steps">${etapas}</ol>` : ""}
     ${s.sport === "strength" && s.detalhe ? `<p class="d">${esc(s.detalhe)}</p>` : ""}
     ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}
+    ${sp === "strength" && !done && dayKey(date) <= dayKey(new Date()) ? `<form class="quickgym" id="quickgym" data-ref="${ref}" data-date="${dayKey(date)}">
+      <div class="eyebrow">Fez um treino diferente?</div>
+      <p class="note" style="margin:4px 0 8px">Não precisa seguir a lista: só diga o que treinou que conta como feito.</p>
+      <div class="row"><input id="qg_txt" placeholder="ex: costas e bíceps" aria-label="O que você treinou" style="flex:2;min-width:160px"><input id="qg_min" type="number" inputmode="numeric" min="0" max="300" placeholder="minutos" aria-label="Duração em minutos (opcional)" style="flex:1;min-width:110px"></div>
+      <button class="btn sm" type="submit" style="margin-top:8px">Registrar como feito</button></form>` : ""}
     ${movable ? `<div class="mvrow"><button type="button" class="btn ghost sm" data-move="${ref}" aria-expanded="${S.move === ref}">Mudar dia</button>${s.movido ? `<span class="note">movido por você</span>` : ""}</div>${S.move === ref ? movePanelHTML(ref) : ""}` : ""}
   </div>`;
 }
@@ -1427,7 +1432,7 @@ function addManualWorkout(x){
     distance: Number(dist)||0, moving_time: (Number(min)||0)*60, average_heartrate: Number(hr) || null });
   if (!a) return null;
   a.sport = sport; a.rpe = rpe ? Math.max(1, Math.min(10, Math.round(rpe))) : null; a.feel = feel || ""; a.obs = (obs||"").slice(0, 500);
-  const extra = ["tipo","local","periodo","clima","cumpriu","planRef","fcmax","watts","cadencia","terreno","elev","estilo","acessorios","series","forca","pre","carbo_g","agua_ml","dor","bike_min","run_min","sono_ant"];
+  const extra = ["foco","tipo","local","periodo","clima","cumpriu","planRef","fcmax","watts","cadencia","terreno","elev","estilo","acessorios","series","forca","pre","carbo_g","agua_ml","dor","bike_min","run_min","sono_ant"];
   for (const k of extra) if (x[k] != null && x[k] !== "" && !(Array.isArray(x[k]) && !x[k].length)) a[k] = x[k];
   if (x.elev) a.elev = Number(x.elev) || 0;
   if (a.dor?.onde){
@@ -1470,6 +1475,7 @@ function logFormHTML(){
       </fieldset>
       <fieldset><legend>Volume <span class="note">(tudo opcional)</span></legend><div class="f">
         <div class="fld"><label for="l_min">Duração (min)</label><input id="l_min" type="number" inputmode="numeric" min="0" max="900" placeholder="45"></div>
+        <div class="fld full" ${show("strength")}><label for="l_foco">O que treinou?</label><input id="l_foco" placeholder="ex: costas e bíceps, pernas, core"></div>
         <div class="fld" ${show("run","bike","swim","brick")}><label for="l_dist">Distância ${sp === "swim" ? "(m)" : "(km)"}</label><input id="l_dist" type="number" inputmode="decimal" min="0" step="${sp === "swim" ? 25 : 0.01}" placeholder="${sp === "swim" ? "2000" : "10"}"></div>
         <div class="fld" ${show("run","bike","brick")}><label for="l_elev">Subida (m)</label><input id="l_elev" type="number" inputmode="numeric" min="0" placeholder="120"></div>
         <div class="fld" ${show("run","bike","brick")}><label for="l_cad">Cadência média</label><input id="l_cad" type="number" inputmode="numeric" min="0" max="250" placeholder="${sp === "run" ? "passos/min" : "rpm"}"></div>
@@ -1494,7 +1500,8 @@ function readLog(){
   const dv = n("l_dist") || 0, dist = sp === "swim" ? (dv > 0 && dv < 20 ? dv*1000 : dv) : dv*1000;
   const forca = sp === "strength" ? [...document.querySelectorAll("#l_ex .exrow")].map(r => ({ nome: r.querySelector('[name="ex_nome"]').value.trim(), series: +r.querySelector('[name="ex_series"]').value || null, reps: r.querySelector('[name="ex_reps"]').value.trim(), kg: +r.querySelector('[name="ex_kg"]').value || null })).filter(x => x.nome) : [];
   const dor = pick("l_dor") === "Sim" && v("l_dor_onde") ? { onde: v("l_dor_onde"), nivel: n("l_dor_nivel") ?? 3, quando: pick("l_dor_quando") } : null;
-  return { sport: sp, date: v("l_date"), periodo: pick("l_periodo"), tipo: v("l_tipo"), local: v("l_local"), planRef: v("l_plan"), cumpriu: pick("l_cumpriu"),
+  const foco = sp === "strength" ? v("l_foco") : "";
+  return { sport: sp, date: v("l_date"), periodo: pick("l_periodo"), foco, nome: foco ? `Força · ${foco}`.slice(0, 80) : "", tipo: v("l_tipo"), local: v("l_local"), planRef: v("l_plan"), cumpriu: pick("l_cumpriu"),
     min, dist, elev: n("l_elev"), terreno: pick("l_terreno"), watts: n("l_watts"), cadencia: n("l_cad"), estilo: sp === "swim" ? pick("l_estilo") : "",
     acessorios: [...document.querySelectorAll('input[name="l_acess"]:checked')].map(x => x.value), series: v("l_series"), forca,
     rpe: +(pick("l_rpe") || 0), feel: pick("l_feel"), clima: pick("l_clima"), hr: n("l_hr"), fcmax: n("l_hrmax"), dor,
@@ -2200,6 +2207,14 @@ document.addEventListener("submit", e => {
       go("painel");
       (async () => { if (!S.activities.length) await syncStrava(); if (!S.plan) await generatePlan(); S.msg.painel = null; coachNote(true); render(); })();
     } else flash("dados", "Perfil salvo.", false);
+  }
+  if (e.target.id === "quickgym"){
+    const txt = $("#qg_txt").value.trim(), min = parseFloat($("#qg_min").value) || null;
+    if (!txt){ flash(S.view, "Diga o que treinou (ex: costas e bíceps).", true); return; }
+    const [wi, dia, i] = e.target.dataset.ref.split(".");
+    addManualWorkout({ sport: "strength", date: e.target.dataset.date, periodo: "", min, nome: `Força · ${txt}`.slice(0, 80), foco: txt, obs: `Treino diferente do planejado: ${txt}`, planRef: `${wi}-${dia}-${i}` });
+    S.openSess = null; flash(S.view, `Treino de força registrado: ${txt}.`, false);
+    replanTriedAt = 0; if (needsReplan()) maybeReplan(); else render();
   }
   if (e.target.id === "testform"){
     const sp = e.target.dataset.sport, num = id => { const x = parseFloat(String($("#" + id)?.value || "").replace(",", ".")); return isNaN(x) ? null : x; };

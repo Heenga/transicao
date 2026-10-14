@@ -423,3 +423,4 @@ body.sheet-open{overflow:hidden}
 .testc .tl{margin:8px 0 0;padding-left:16px;font-size:13px;display:flex;flex-direction:column;gap:3px}
 .testform .f{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 @media (max-width:720px){.testgrid{grid-template-columns:1fr}.testform .f{grid-template-columns:1fr}}
+.quickgym{margin-top:16px;padding:12px;border:1px dashed var(--line);border-radius:12px}
