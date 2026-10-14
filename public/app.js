@@ -948,7 +948,7 @@ Alimentação: alvos de hoje ${JSON.stringify(dietTargets())}; recentes ${JSON.s
       onText: ({ text }) => { bubble.t = text; const el = $("#msgs .msg.a:last-child"); if (el) el.textContent = text; scrollChat(); } });
     bubble.t = r.text;
     for (const n of new Set(S.chatNotes)) S.chat.push({ r:"sys", t: n + "." }); S.chatNotes = [];
-    if (S.chatChangedPlan){ S.chat.push({ r:"sys", t:"Plano atualizado pelo coach." }); S.chatChangedPlan = false; }
+    if (S.chatChangedPlan){ S.chat.push({ r:"sys", t:"Plano atualizado pelo coach." }); S.chatChangedPlan = false; pushToIntervals({ quiet: true }); }
     if (S.chatChangedBody){ S.chat.push({ r:"sys", t:"Queixa registrada no seu perfil." }); S.chatChangedBody = false; }
   } catch (e) {
     bubble.t = e?.text || "";
@@ -1027,7 +1027,7 @@ function applySwap(nome){
   const sess = sessByRef(S.swap.ref), x = sess?.exercicios?.[S.swap.ei]; if (!x) return;
   if (!x.trocado) x.trocado = x.nome;
   x.nome = nome; if (x.trocado === nome) delete x.trocado;
-  S.swap = null; save("plan", S.plan); flash(S.view, `Exercício trocado para ${nome}.`, false);
+  S.swap = null; save("plan", S.plan); pushToIntervals({ quiet: true }); flash(S.view, `Exercício trocado para ${nome}.`, false);
 }
 async function swapAI(){
   const sess = sessByRef(S.swap.ref), x = sess?.exercicios?.[S.swap.ei]; if (!x) return;
@@ -2187,23 +2187,31 @@ async function pushToIntervals(opts = {}){
   busy("intervals", false); render();
 }
 function intervalsCardHTML(){
-  const iv = window.TRI?.me?.intervals;
-  if (iv?.connected) return `<div class="row" style="flex-wrap:wrap"><span class="note">Conectado${iv.athleteName ? ` como <b>${esc(iv.athleteName)}</b>` : ""}${S.plan?.ivAt ? ` · último envio ${agoText(S.plan.ivAt)}` : ""}</span></div>
-    <div class="row" style="margin-top:8px"><button class="btn" data-act="ivpush" ${S.busy.intervals ? "disabled" : ""}>${S.busy.intervals ? '<span class="spin"></span> Enviando' : "Enviar semana para o Garmin"}</button><button class="btn ghost sm" data-act="ivoff">Desconectar</button></div>
-    <p class="note" style="margin:8px 0 0">A semana é enviada sozinha sempre que o coach gera ou reajusta os treinos, e quando você muda um treino de dia.</p>`;
-  return `<ol class="steps" style="margin:4px 0 10px">
-      <li><span>Crie uma conta grátis em <b>intervals.icu</b> (pode entrar com o Strava).</span></li>
-      <li><span>Lá, em <b>Settings → Garmin Connect</b>, conecte o Garmin e marque <b>"Upload planned workouts"</b>.</span></li>
-      <li><span>Ainda em Settings, desça até <b>Developer Settings</b>, gere a <b>API Key</b> e copie.</span></li>
-      <li><span>Cole a chave aqui embaixo e toque em Conectar.</span></li></ol>
-    <form id="ivform" class="row" style="flex-wrap:wrap"><input id="iv_key" placeholder="Cole a API Key do intervals.icu" autocomplete="off" spellcheck="false" style="flex:1;min-width:200px"><button class="btn" type="submit" ${S.busy.ivconnect ? "disabled" : ""}>${S.busy.ivconnect ? '<span class="spin"></span>' : "Conectar"}</button></form>
-    <p class="note" style="margin:8px 0 0">A chave fica guardada criptografada no servidor; ninguém do grupo consegue ver.</p>`;
+  const iv = window.TRI?.me?.intervals, on = iv?.connected;
+  const head = `<div class="iv-head"><div class="logo" style="color:#E8473F">ICU</div><div><h3>Treinos no relógio Garmin</h3><div class="note">via intervals.icu</div></div>${on ? `<span class="tag" style="--c:var(--ok)">conectado</span>` : ""}</div>`;
+  if (on) return `<div class="ivsrc">${head}
+    <p class="iv-p">Os treinos da semana vão sozinhos para o seu Garmin, com as etapas (aquecimento, principal, tiros) e a zona ou o pace de cada uma.</p>
+    <ul class="iv-auto"><li>Domingo à noite, quando a semana nova é gerada</li><li>Sempre que o coach reajusta a semana</li><li>Quando você muda um treino de dia ou troca um exercício</li></ul>
+    <div class="note">${iv.athleteName ? `Conta: <b>${esc(iv.athleteName)}</b>` : ""}${S.plan?.ivAt ? ` · último envio ${agoText(S.plan.ivAt)}` : ""}</div>
+    <div class="row iv-actions"><button class="btn" data-act="ivpush" ${S.busy.intervals ? "disabled" : ""}>${S.busy.intervals ? '<span class="spin"></span> Enviando' : "Enviar agora"}</button><button class="btn ghost sm" data-act="ivoff">Desconectar</button></div></div>`;
+  return `<div class="ivsrc">${head}
+    <p class="iv-p">Manda os treinos que o coach montou para o calendário do seu Garmin. O relógio guia cada etapa e avisa quando você sai da zona ou do pace.</p>
+    <div class="eyebrow" style="margin-top:14px">Como ligar (uma vez só)</div>
+    <ol class="iv-steps">
+      <li>Crie uma conta grátis em <b>intervals.icu</b> (dá para entrar com o Strava).</li>
+      <li>Lá, em <b>Settings → Garmin Connect</b>, conecte o Garmin e marque <b>Upload planned workouts</b>.</li>
+      <li>Em <b>Settings → Run</b> e <b>Ride</b>, preencha a sua FC máxima (e a de limiar, se souber).</li>
+      <li>No fim de Settings, em <b>Developer Settings</b>, gere a <b>API Key</b> e copie.</li>
+      <li>Cole a chave aqui embaixo e toque em <b>Conectar</b>.</li>
+    </ol>
+    <form id="ivform" class="iv-form"><input id="iv_key" placeholder="Cole a API Key aqui" autocomplete="off" spellcheck="false" aria-label="API Key do intervals.icu"><button class="btn" type="submit" ${S.busy.ivconnect ? "disabled" : ""}>${S.busy.ivconnect ? '<span class="spin"></span>' : "Conectar"}</button></form>
+    <p class="note" style="margin:8px 0 0">A chave fica criptografada no servidor. Ninguém do grupo consegue ver.</p></div>`;
 }
 function connectionsHTML(){
   return `<section class="panel"><div class="ph"><h2>Conexões</h2></div>
     ${sourceCard("strava", "STR", "#FC4C02", "Strava", "Cada participante conecta a própria conta do Strava. Garmin e Apple Watch enviam os treinos ao Strava automaticamente; daqui o app lê tudo.",
       stravaActionHTML())}
-    ${sourceCard("intervals", "ICU", "#E8473F", "Treinos no relógio Garmin (via intervals.icu)", "Manda os treinos que o coach montou para o calendário do Garmin Connect: o relógio guia cada etapa (aquecimento, tiros, pace e zonas).", intervalsCardHTML())}
+    ${intervalsCardHTML()}
     <details class="more"><summary>Importar arquivos do Garmin ou Apple Watch</summary>
     ${sourceCard("garmin", "GRM", "#007CC3", "Garmin",
       `<b>Automático:</b> no app Garmin Connect, Mais → Configurações → Aplicativos conectados → Strava. Depois é só sincronizar o Strava aqui.<br><b>Arquivos:</b> envie .fit, .tcx, .gpx (Garmin Connect → atividade → ⚙ → Exportar original), o CSV da lista de atividades ou o .zip da exportação completa da conta.`,
