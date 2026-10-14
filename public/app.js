@@ -1833,6 +1833,20 @@ function render(){
   if (S.view === "painel") window.scrollTo(0, y);
 }
 
+/** Re-render vindo de atualização em segundo plano: só redesenha se o dado mudou e preserva o que a pessoa está digitando. */
+function bgRender(prev, next){
+  if (JSON.stringify(prev) === JSON.stringify(next)) return;
+  const key = el => el.id || (el.name && (el.type === "checkbox" || el.type === "radio") ? `${el.name}|${el.value}` : el.name);
+  const keep = [...document.querySelectorAll("#app input, #app textarea, #app select")].filter(el => el.type !== "file" && key(el))
+    .map(el => [key(el), el.type === "checkbox" || el.type === "radio" ? el.checked : el.value]);
+  const focus = document.activeElement && key(document.activeElement), y = window.scrollY;
+  render();
+  const els = new Map([...document.querySelectorAll("#app input, #app textarea, #app select")].map(el => [key(el), el]));
+  keep.forEach(([k, v]) => { const el = els.get(k); if (!el) return; if (typeof v === "boolean") el.checked = v; else el.value = v; });
+  if (focus) els.get(focus)?.focus({ preventScroll:true });
+  window.scrollTo(0, y);
+}
+
 /* ---------- eventos ---------- */
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) go(b.dataset.v); });
 document.addEventListener("click", e => {
@@ -1988,12 +2002,12 @@ async function boot(){
   if (!db || !uid){ S.noDb = true; S.ready = true; render(); return; }
   S.db = db; S.uid = uid;
   S.isOwner = await user.isOwner().catch(() => false);
-  db.doc("config/race").onSnapshot(snap => { if (snap.exists){ S.race = { ...RACE_DEFAULT, ...snap.data() }; render(); } }, () => {});
-  cap("sample").then(s => s?.limits?.().then(l => { S.canImg = !!l?.images; render(); }).catch(() => {}));
+  db.doc("config/race").onSnapshot(snap => { if (snap.exists){ const prev = S.race; S.race = { ...RACE_DEFAULT, ...snap.data() }; bgRender(prev, S.race); } }, () => {});
+  cap("sample").then(s => s?.limits?.().then(l => { const prev = S.canImg; S.canImg = !!l?.images; bgRender(prev, S.canImg); }).catch(() => {}));
   await loadMine();
   S.ready = true; render();
-  db.collection("team").onSnapshot(snap => { S.team = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") render(); }, () => {});
-  db.collection("kudos").onSnapshot(snap => { S.kudos = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") render(); }, () => {});
+  db.collection("team").onSnapshot(snap => { const prev = S.team; S.team = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.team); }, () => {});
+  db.collection("kudos").onSnapshot(snap => { const prev = S.kudos; S.kudos = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.kudos); }, () => {});
   if (S.profile) saveTeam();
   const sv = new URLSearchParams(location.search).get("strava");
   if (sv){ history.replaceState(null, "", "/");
