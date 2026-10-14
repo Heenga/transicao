@@ -487,9 +487,21 @@ async function persistSync(){
   await save("activities", { list: S.activities, zones: S.zones, syncedAt: S.lastSync, sources: S.sources });
   saveTeam();
 }
-async function syncStrava(){
+/** Puxa do Strava sozinho (Garmin → Strava → app) ao abrir e a cada 30 min, sem mensagens na tela. */
+function autoSyncStrava(){
+  if (!window.TRI?.me?.strava?.connected || S.busy.strava) return;
+  if (S.lastSync && Date.now() - new Date(S.lastSync) < 30*60e3) return;
+  syncStrava({ quiet: true });
+}
+async function syncStrava(opts = {}){
   if (S.busy.strava) return;
-  if (!window.TRI?.me?.strava?.connected){ flash(S.view, "Conecte seu Strava primeiro: Configurações → Conexões → Conectar meu Strava.", true); return; }
+  if (!window.TRI?.me?.strava?.connected){ if (!opts.quiet) flash(S.view, "Conecte seu Strava primeiro: Configurações → Conexões → Conectar meu Strava.", true); return; }
+  if (opts.quiet){
+    busy("strava", true);
+    try { const r = await TRI.api("/api/strava/activities?days=14&per_page=50"); const added = mergeActivities((r.activities || []).map(normalize).filter(Boolean), "strava"); await persistSync(); busy("strava", false); if (added){ render(); maybeReplan(); } }
+    catch { busy("strava", false); }
+    return;
+  }
   busy("strava", true); S.msg[S.view] = { text: "Lendo seus treinos recentes do Strava…", err:false }; render();
   const errText = e => e?.code === "server_not_connected" ? "Conecte seu Strava primeiro." : e?.code === "needs_reauth" ? "A conexão com o Strava expirou. Conecte de novo em Configurações." : e?.code === "rate_limited" ? (e.message || "Limite atingido. Tente em alguns minutos.") : (e?.message || "Não consegui falar com o Strava.");
   try {
@@ -725,7 +737,7 @@ function activeComplaints(){ return (S.profile?.complaints || []).filter(c => !c
 const sportFits = (sess, a) => a.sport === sess.sport || (sess.sport === "brick" && (a.sport === "bike" || a.sport === "run" || a.sport === "brick"));
 let _mm = { key:"", sessToAct:new Map(), actToSess:new Map() };
 function planMatches(){
-  const key = (S.plan?.updatedAt || S.plan?.createdAt || "") + (S.plan?.editedAt || "") + "|" + S.activities.length + "|" + (S.activities[0]?.id || "") + "|" + S.activities.filter(a => a.planRef).length;
+  const key = (S.plan?.updatedAt || S.plan?.createdAt || "") + (S.plan?.editedAt || "") + "|" + S.activities.length + "|" + (S.activities[0]?.id || "") + "|" + S.activities.map(a => a.planRef || "").join(",");
   if (_mm.key === key) return _mm;
   const sessToAct = new Map(), actToSess = new Map();
   if (S.plan){
@@ -1055,6 +1067,37 @@ function sessHTML(s, date){
   return ref ? `<button type="button" class="sess sessbtn c-${sp}${done ? " done" : ""}" data-open="${ref}" data-date="${date ? dayKey(date) : ""}" aria-haspopup="dialog">${inner}<span class="more" aria-hidden="true">Ver treino ›</span></button>`
              : `<div class="sess c-${sp}${done ? " done" : ""}">${inner}</div>`;
 }
+/** No painel do treino: qual atividade (do Garmin/Strava ou manual) cumpriu a sessão, escolha manual e complemento. */
+function doneBlockHTML(ref, date){
+  if (dayKey(date) > dayKey(new Date())) return "";
+  const k = dayKey(date), acts = S.activities.filter(a => dayKey(a.date) === k && a.sport !== "other");
+  if (!acts.length) return "";
+  const id = planMatches().sessToAct.get(ref), a = acts.find(x => x.id === id);
+  const hhmm = x => new Date(x.date).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const lbl = x => `${SPORTS[x.sport]} · ${hhmm(x)} · ${fmtDur(x.mov)}${x.dist ? " · " + fmtDist(x.sport, x.dist) : ""}`;
+  const src = x => ({ strava: "Strava/Garmin", manual: "manual" })[x.src] || "";
+  return `<div class="doneblk">
+    ${a ? `<div class="eyebrow">Treino feito ✓ <span class="note">${esc(src(a))}</span></div>
+      <div class="kv" style="margin:6px 0 0"><div><span>Horário</span><b>${hhmm(a)}</b></div><div><span>Tempo</span><b>${fmtDur(a.mov)}</b></div>${a.dist ? `<div><span>Distância</span><b>${fmtDist(a.sport, a.dist)}</b></div>` : ""}${a.sport === "run" && a.dist ? `<div><span>Pace</span><b>${paceRun(a.dist, a.mov)}</b></div>` : a.sport === "swim" && a.dist ? `<div><span>Ritmo</span><b>${paceSwim(a.dist, a.mov)}</b></div>` : a.sport === "bike" && a.dist ? `<div><span>Velocidade</span><b>${speedBike(a.dist, a.mov)}</b></div>` : ""}${a.hr ? `<div><span>FC média</span><b>${Math.round(a.hr)} bpm</b></div>` : ""}</div>
+      <form id="actnote" data-id="${esc(a.id)}" style="margin-top:12px">
+        <div class="note" style="margin-bottom:6px">Complementar (o coach usa isso no próximo ajuste)</div>
+        ${rpeChips("an_rpe", a.rpe || null)}
+        <textarea id="an_obs" rows="2" placeholder="Como foi? Dor, cansaço, o que mudou, dados que o relógio não pegou…" style="margin-top:8px">${esc(a.obs || "")}</textarea>
+        <button class="btn sm" type="submit" style="margin-top:8px">Salvar complemento</button></form>`
+      : `<div class="eyebrow">Ainda não ligado a um treino feito</div>`}
+    ${acts.length > (a ? 1 : 0) ? `<div class="note" style="margin-top:12px">${a ? "Não foi esse? Escolha o treino certo do dia:" : "Algum destes foi este treino?"}</div>
+      <div class="chips" style="margin:6px 0 0">${acts.filter(x => x.id !== id).map(x => `<button type="button" class="chip" data-link="${esc(x.id)}" data-ref="${ref}">${esc(lbl(x))}</button>`).join("")}${a ? `<button type="button" class="chip" data-link="" data-ref="${ref}">Nenhum: não fiz este</button>` : ""}</div>` : ""}
+  </div>`;
+}
+/** Liga (ou desliga) uma atividade a uma sessão do plano. */
+function linkActivity(ref, actId){
+  const pr = ref.split(".").join("-"), cur = planMatches().sessToAct.get(ref);
+  S.activities.forEach(a => { if (a.planRef === pr) delete a.planRef; });
+  if (actId){ const a = S.activities.find(x => x.id === actId); if (a) a.planRef = pr; }
+  else if (cur){ const a = S.activities.find(x => x.id === cur); if (a) a.planRef = "none"; } // "não fiz": essa atividade vira treino fora do plano
+  persistActivities(); saveTeam(); render();
+  flash(S.view, actId ? "Treino ligado a esta sessão do plano." : "Sessão marcada como não feita; a atividade ficou como treino fora do plano.", false);
+}
 /** Painel com o treino completo: etapas, dica, exercícios (com troca) e mudar de dia. */
 function sessSheetHTML(){
   const ref = S.openSess, s = ref && sessByRef(ref);
@@ -1078,6 +1121,7 @@ function sessSheetHTML(){
     ${etapas ? `<h3 class="shh">Passo a passo</h3><ol class="steps">${etapas}</ol>` : ""}
     ${s.sport === "strength" && s.detalhe ? `<p class="d">${esc(s.detalhe)}</p>` : ""}
     ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}
+    ${doneBlockHTML(ref, date)}
     ${sp === "strength" && !done && dayKey(date) <= dayKey(new Date()) ? `<form class="quickgym" id="quickgym" data-ref="${ref}" data-date="${dayKey(date)}">
       <div class="eyebrow">Fez um treino diferente?</div>
       <p class="note" style="margin:4px 0 8px">Não precisa seguir a lista: só diga o que treinou que conta como feito.</p>
@@ -2149,6 +2193,7 @@ document.addEventListener("click", e => {
   if (e.target.closest("[data-swapclose]")){ S.swap = null; render(); return; }
   const op = e.target.closest("[data-open]"); if (op){ S.openSess = op.dataset.open; S.move = null; S.swap = null; render(); return; }
   if (e.target.closest("[data-closesheet]")){ S.openSess = null; S.move = null; S.swap = null; render(); return; }
+  const lk = e.target.closest("[data-link]"); if (lk){ linkActivity(lk.dataset.ref, lk.dataset.link); return; }
   const to = e.target.closest("[data-testopen]"); if (to){ S.testOpen = to.dataset.testopen || null; render(); return; }
   const mo = e.target.closest("[data-move]"); if (mo){ S.move = S.move === mo.dataset.move ? null : mo.dataset.move; render(); return; }
   const mt = e.target.closest("[data-moveto]"); if (mt){ movePlanned(mt.dataset.ref, +mt.dataset.moveto, false); return; }
@@ -2218,6 +2263,11 @@ document.addEventListener("submit", e => {
       flash("dados", "Perfil salvo. Reajustando os treinos da semana com as novas configurações…", false);
       maybeReplan();
     } else flash("dados", "Perfil salvo.", false);
+  }
+  if (e.target.id === "actnote"){
+    const a = S.activities.find(x => x.id === e.target.dataset.id); if (!a) return;
+    const r = +(pick("an_rpe") || 0); if (r) a.rpe = r; a.obs = $("#an_obs").value.trim().slice(0, 500);
+    persistActivities(); saveTeam(); flash(S.view, "Complemento salvo. O coach considera no próximo ajuste.", false); render();
   }
   if (e.target.id === "quickgym"){
     const txt = $("#qg_txt").value.trim(), min = parseFloat($("#qg_min").value) || null;
@@ -2324,7 +2374,7 @@ async function boot(){
   cap("sample").then(s => s?.limits?.().then(l => { const prev = S.canImg; S.canImg = !!l?.images; bgRender(prev, S.canImg); }).catch(() => {}));
   await loadMine();
   S.ready = true; render();
-  maybeReplan(); setInterval(maybeReplan, 10*60e3); // pega o domingo 19h mesmo com o app aberto
+  autoSyncStrava(); maybeReplan(); setInterval(() => { autoSyncStrava(); maybeReplan(); }, 10*60e3); // pega treinos novos e o domingo 19h mesmo com o app aberto
   db.collection("team").onSnapshot(snap => { const prev = S.team; S.team = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.team); }, () => {});
   db.collection("kudos").onSnapshot(snap => { const prev = S.kudos; S.kudos = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.kudos); }, () => {});
   if (S.profile) saveTeam();
