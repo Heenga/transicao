@@ -124,6 +124,6 @@ create policy history_read on public.documents_history for select using (public.
 
 -- prova inicial do grupo
 insert into public.documents (path, owner, data)
-select 'config/race', u.id, '{"name":"All Limits","label":"High Limits","type":"olimpico","date":"2027-05-30","time":"06:30","place":"Lagoa dos Ingleses"}'::jsonb
+select 'config/race', u.id, '{"name":"All Limits","label":"High Limits","type":"olimpico","date":"2027-05-30","time":"06:30","place":"Lagoa dos Ingleses · Alphaville, Nova Lima – MG"}'::jsonb
 from auth.users u order by u.created_at limit 1
 on conflict (path) do nothing;

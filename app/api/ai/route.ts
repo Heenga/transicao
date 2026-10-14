@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { requireUser, json, fail, rateLimited } from "@/lib/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300; // geração do plano pode levar mais de 1 minuto
 
 /**
  * Proxy seguro para a API da Anthropic. A chave fica só no servidor.

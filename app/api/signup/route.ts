@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   // prova padrão do grupo, criada na primeira conta
   await sb.from("documents").upsert({
     path: "config/race", owner: data.user.id,
-    data: { name: "All Limits", label: "High Limits", type: "olimpico", date: "2027-05-30", time: "06:30", place: "Lagoa dos Ingleses" },
+    data: { name: "All Limits", label: "High Limits", type: "olimpico", date: "2027-05-30", time: "06:30", place: "Lagoa dos Ingleses · Alphaville, Nova Lima – MG" },
   }, { onConflict: "path", ignoreDuplicates: true });
 
   return json({ ok: true, username });

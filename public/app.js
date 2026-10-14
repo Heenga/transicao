@@ -7,7 +7,7 @@ const SPORTS = { swim:"Natação", bike:"Bike", run:"Corrida", brick:"Transiçã
 const DOW = ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
 const RACES = { sprint:"Sprint (750 m / 20 km / 5 km)", olimpico:"Olímpico (1,5 km / 40 km / 10 km)", "703":"70.3 (1,9 km / 90 km / 21 km)", ironman:"Ironman (3,8 km / 180 km / 42 km)" };
 
-const RACE_DEFAULT = { name:"All Limits", date:"2027-05-30", time:"06:30", type:"", place:"Lagoa dos Ingleses" };
+const RACE_DEFAULT = { name:"All Limits", label:"High Limits", date:"2027-05-30", time:"06:30", type:"olimpico", place:"Lagoa dos Ingleses · Alphaville, Nova Lima – MG" };
 const S = { race: { ...RACE_DEFAULT }, isOwner:false, kudos:[], view:"painel", uid:null, db:null, profile:null, activities:[], plan:null, chat:[], team:[], zones:null, week:0, busy:{}, msg:{}, ready:false, noDb:false };
 
 /* ---------- datas e formatos ---------- */
@@ -378,6 +378,30 @@ function computeBadges(){
   const adh = adherence(); if (adh != null && adh >= 90) b.push({ k:"plano", t:"No plano", d:"90%+ dos treinos do plano cumpridos" });
   return b;
 }
+const PERIODS = { dia:"Hoje", semana:"Semana", mes:"Mês", periodo:"Todo o período" };
+function periodStart(k){
+  const t = new Date(new Date().toDateString());
+  if (k === "dia") return t;
+  if (k === "semana") return mondayOf(t);
+  if (k === "mes") return new Date(t.getFullYear(), t.getMonth(), 1);
+  return new Date((S.race?.start || "2026-10-01") + "T00:00:00");
+}
+function periodStats(){
+  const enough = dataQuality().enough, fit = enough ? fitnessSeries(240) : null, out = {};
+  for (const k of Object.keys(PERIODS)){
+    const st = periodStart(k), xs = S.activities.filter(a => new Date(a.date) >= st);
+    const by = sp => xs.filter(a => a.sport === sp);
+    const hours = xs.reduce((s,a)=>s+a.mov,0)/3600, days = Math.max(1, Math.round((Date.now() - st)/864e5));
+    const sports = ["swim","bike","run"].filter(sp => by(sp).length).length;
+    const points = Math.round(hours*10 + Math.min(xs.length, days*2)*5 + (sports === 3 ? 20 : 0));
+    let formaIni = null;
+    if (fit){ const i = fit.findIndex(p => p.d >= st); formaIni = i > 0 ? +score(fit[i-1].ctl).toFixed(1) : i === 0 ? +score(fit[0].ctl).toFixed(1) : null; }
+    out[k] = { points, hours: +hours.toFixed(1), sessions: xs.length, swim_m: Math.round(by("swim").reduce((s,a)=>s+a.dist,0)),
+      bike_km: +(by("bike").reduce((s,a)=>s+a.dist,0)/1000).toFixed(1), run_km: +(by("run").reduce((s,a)=>s+a.dist,0)/1000).toFixed(1),
+      forma: fit ? +score(fit.at(-1).ctl).toFixed(1) : null, forma_ini: formaIni };
+  }
+  return out;
+}
 function saveTeam(){
   if (!S.db || !S.uid || !S.profile) return;
   const w = weeklyBuckets(1)[0], w12 = weeklyBuckets(12), monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -393,7 +417,7 @@ function saveTeam(){
     forma: fit && dataQuality().enough ? +score(fit.at(-1).ctl).toFixed(1) : null, forma4: fit && dataQuality().enough ? +score(fit[Math.max(0, fit.length-29)].ctl).toFixed(1) : null,
     streakDays: streakDays(), streakWeeks: streakWeeks(), adherence: adh, badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
     recent: S.activities.slice(0, 6).map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
-    updatedAt: new Date().toISOString() };
+    periods: periodStats(), updatedAt: new Date().toISOString() };
   S.db.collection("team").doc(S.uid).set(doc).catch(e => console.warn("team", e));
 }
 
@@ -509,7 +533,14 @@ async function generatePlan(){
   if (!sample){ flash("plano","O gerador de plano está indisponível agora.", true); render(); return; }
   busy("plan", true); render();
   const start = planStart();
-  const prompt = `Você é um treinador de triatlo experiente. Monte um plano de 4 semanas em português do Brasil, começando na segunda-feira ${dayKey(start)}.
+  const hoje = new Date(new Date().toDateString()), hojeIdx = (hoje.getDay()+6)%7;
+  const fim = addDays(start, 27);
+  const prompt = `Você é um treinador de triatlo experiente. Monte um plano de 4 semanas em português do Brasil.
+CALENDÁRIO (siga exatamente):
+- Hoje é ${hoje.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} (dia ${hojeIdx} da semana, 0 = segunda).
+- A semana 1 vai de segunda ${start.toLocaleDateString("pt-BR")} a domingo ${addDays(start,6).toLocaleDateString("pt-BR")}. ${hojeIdx > 0 ? `Os dias 0 a ${hojeIdx-1} da semana 1 JÁ PASSARAM: deixe-os sem sessões (sessoes: []). O plano começa HOJE (dia ${hojeIdx}).` : "O plano começa hoje (segunda)."}
+- O plano termina no domingo ${fim.toLocaleDateString("pt-BR")}. A prova é em ${new Date(S.race.date+"T12:00:00").toLocaleDateString("pt-BR")} (faltam ${daysToRace()} dias).
+- Se a semana 1 ficar curta, distribua nela só o que cabe a partir de hoje, sem compensar volume.
 
 PROVA ALVO (a mesma para todo o grupo):
 ${JSON.stringify(raceForAI())}
@@ -530,19 +561,23 @@ ${METODO}
 
 REGRAS DESTE PLANO:
 - Respeite os dias disponíveis e as horas semanais. Dias indisponíveis = descanso.
+- PREFERÊNCIA DO ATLETA POR DIA: ${({ "1":"no máximo 1 modalidade por dia (nada de 2 sessões no mesmo dia)", "2":"no máximo 2 sessões por dia", "1+gym":"1 modalidade por dia; força/academia pode ser no mesmo dia", "todas":"pode combinar várias sessões no dia quando o plano pedir" })[S.profile?.porDia] || "sem preferência informada"}.
+- FIM DE SEMANA E FERIADOS: ${S.profile?.fds === "Sim" ? "pode treinar todas as modalidades no mesmo dia (use para longão, brick e treinos combinados)" : "segue a mesma regra dos outros dias"}.
+- Use rolo/esteira se o atleta tiver: rolo ${S.profile?.rolo || "?"}, corrida ${S.profile?.corre || "?"}. Ponto fraco: ${S.profile?.fraco || "?"} (dê um pouco mais de frequência a ele).
 - Parta do volume atual real (histórico acima); semana 4 é de recuperação, salvo se a prova cair antes.
 - Natação em metros com séries (ex: "10x100 no CSS, 15 s"). Bike e corrida em minutos com zona e RPE.
 - Se o histórico estiver vazio ou sem testes, comece conservador e marque os testes na semana 1.
 - QUEIXAS ATIVAS: ${JSON.stringify(activeComplaints())}. Para cada queixa, adapte: reduza impacto/volume na modalidade que agrava, inclua exercícios de reabilitação progressiva na força (ex.: tendão de Aquiles → excêntrico/isométrico de panturrilha com joelho estendido e flexionado; dor ≤3/10 durante e sem piora no dia seguinte é aceitável). Nunca diagnostique.
 
 Responda SÓ com JSON neste formato:
-{"resumo":"2 frases sobre a lógica do bloco","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semanas":[{"n":1,"foco":"texto curto","carga":"leve|moderada|alta|recuperação","dias":[{"dia":0,"sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","min":60,"dist":"2.000 m ou 30 km ou vazio","zona":"Z2","detalhe":"até 160 caracteres","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}]}
-"exercicios" só nas sessões strength (4 a 7 exercícios).
+{"resumo":"2 frases sobre a lógica do bloco","fase":"Base|Construção|Específico|Polimento","metodo":"1 frase: distribuição usada e por quê","distribuicao":{"leve":80,"moderado":15,"forte":5},"semanas":[{"n":1,"foco":"texto curto","carga":"leve|moderada|alta|recuperação","dias":[{"dia":0,"sessoes":[{"sport":"swim|bike|run|brick|strength|rest","titulo":"curto","min":60,"dist":"2.000 m ou 30 km ou vazio","zona":"Z2","etapas":[{"fase":"Aquecimento","min":10,"desc":"Z1, cadência solta"},{"fase":"Principal","min":30,"desc":"Z2 contínuo, FC abaixo de 145"},{"fase":"Desaquecimento","min":5,"desc":"bem leve"}],"dica":"1 frase prática (percurso, técnica, alimentação)","exercicios":[{"nome":"Panturrilha excêntrica no degrau","series":3,"reps":"15","carga":"peso corporal","obs":"curto"}]}]}]}]}
+"exercicios" só nas sessões strength (4 a 7 exercícios). "etapas" em toda sessão que não for força: cada etapa com fase, minutos e descrição curta (até 70 caracteres). Não use "detalhe" longo.
 "dia" vai de 0 (segunda) a 6 (domingo); cada semana tem os 7 dias.`;
   try {
     const plan = await sample.json(prompt, { modelTier: "complex" });
     if (!plan || !Array.isArray(plan.semanas)) throw { code:"invalid_json" };
-    S.plan = { ...plan, start: dayKey(start), createdAt: new Date().toISOString() };
+    (plan.semanas[0]?.dias || []).forEach(d => { if (d.dia < hojeIdx) d.sessoes = []; });
+    S.plan = { ...plan, start: dayKey(start), inicio: dayKey(hoje), fim: dayKey(fim), createdAt: new Date().toISOString() };
     S.week = 0;
     await save("plan", S.plan);
     flash("plano", "Plano gerado.", false);
@@ -565,7 +600,7 @@ function adherence(){
   if (!S.plan) return null;
   let due = 0, done = 0; const today = new Date(); today.setHours(23,59,59);
   S.plan.semanas.forEach((w, wi) => (w.dias||[]).forEach(d => {
-    const date = planDate(wi, d.dia); if (date > today) return;
+    const date = planDate(wi, d.dia); if (date > today || (S.plan.inicio && dayKey(date) < S.plan.inicio)) return;
     (d.sessoes||[]).forEach(s => { if (s.sport === "rest") return; due++; if (isDone(s, date)) done++; });
   }));
   return due ? Math.round(done/due*100) : null;
@@ -578,7 +613,7 @@ async function coachNote(force){
   const sample = await cap("sample"); if (!sample) return;
   busy("note", true); render();
   try {
-    const r = await sample(`Você é o treinador de triatlo de ${S.profile.nick || "um atleta"}. Hoje é ${new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}.
+    const r = await sample.json(`Você é o treinador de triatlo de ${S.profile.nick || "um atleta"}. Hoje é ${new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}.
 Prova: ${JSON.stringify(raceForAI())}
 Perfil: ${JSON.stringify(S.profile)}
 Dados: ${JSON.stringify(summaryForAI())}
@@ -586,11 +621,26 @@ Condicionamento (modelo de carga): ${JSON.stringify(fitnessForAI())}
 Antes (8 semanas atrás) vs agora (últimas 4 semanas): ${JSON.stringify(compareRows().map(r => ({ indicador: r.k, antes: r.a ? r.f(r.a) : null, agora: r.b ? r.f(r.b) : null })))}
 Recuperação (check-ins recentes): ${JSON.stringify((S.checkins||[]).slice(-7))}
 Próximo treino: ${JSON.stringify(nextSession()?.sessions || [])}
-Escreva um relatório curto (máx. 4 frases, sem saudação, sem emoji, sem listas): como o atleta estava e como está hoje com números, o ponto mais importante (desequilíbrio entre modalidades, salto de carga, consistência, sono) e o foco do próximo treino. Se o sono ou cansaço do check-in de hoje estiverem ruins, diga como adaptar.`, { modelTier:"quick" });
-    S.profile = { ...S.profile, note: r.text.trim(), noteAt: new Date().toISOString() };
+Use só os números acima; se um dado não existir, não cite. Português do Brasil, frases curtas, sem emoji, sem jargão sem explicação.
+Responda SÓ com JSON:
+{"resumo":"1 frase: como está hoje",
+ "pontos":[{"titulo":"2 a 4 palavras","texto":"1 frase com o número que comprova (ex.: Corrida subiu de 8,0 para 12,4 km/semana)","tipo":"bom|atencao|neutro"}],
+ "foco":"1 frase: o que fazer no próximo treino (e como adaptar se o sono/cansaço de hoje estiver ruim)"}
+"pontos" tem de 2 a 4 itens.`, { modelTier:"quick" });
+    S.profile = { ...S.profile, noteObj: r, note: [r.resumo, ...(r.pontos||[]).map(p => p.texto), r.foco].filter(Boolean).join(" "), noteAt: new Date().toISOString() };
     save("profile", S.profile);
   } catch {}
   busy("note", false); render();
+}
+function coachNoteHTML(p){
+  const o = p.noteObj;
+  if (!o || !Array.isArray(o.pontos)) return `<p style="margin:0">${esc(p.note)}</p>`;
+  return `<div class="cnote">
+    ${o.resumo ? `<p class="cn-sum">${esc(o.resumo)}</p>` : ""}
+    <ul class="cn-list">${o.pontos.slice(0,4).map(x => `<li class="t-${x.tipo === "bom" ? "bom" : x.tipo === "atencao" ? "at" : "ne"}"><b>${esc(x.titulo || "")}</b><span>${esc(x.texto || "")}</span></li>`).join("")}</ul>
+    ${o.foco ? `<div class="cn-foco"><span class="eyebrow">Foco do próximo treino</span><p>${esc(o.foco)}</p></div>` : ""}
+    ${p.noteAt ? `<div class="note">Atualizado ${agoText(p.noteAt)}</div>` : ""}
+  </div>`;
 }
 function todaySessions(){
   if (!S.plan) return [];
@@ -747,11 +797,79 @@ function sportTile(sport){
     ${spark(sport)}
   </div>`;
 }
+const ZONA_TXT = { Z1:"recuperação, bem leve", Z2:"leve, dá para conversar", Z3:"moderado, ritmo de prova longa", Z4:"forte, no limiar", Z5:"muito forte, VO2máx" };
+function splitSteps(t){
+  return String(t||"").split(/\s*(?:;|•|\n|\s\+\s|\.\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕ0-9]))\s*/).map(x => x.replace(/\.$/, "").trim()).filter(Boolean);
+}
+const EX_ALT = [
+  [/agach|leg ?press|hack|goblet|smith.*agach/i, ["Agachamento livre com barra","Agachamento no Smith","Leg press 45°","Goblet squat (halter)","Hack machine","Agachamento búlgaro"]],
+  [/terra|stiff|romeno|flexora|good ?morning/i, ["Stiff com barra","Stiff com halteres","Terra romeno unilateral","Mesa flexora","Good morning","Ponte unilateral no chão"]],
+  [/afundo|avan[cç]o|passada|b[uú]lgaro|step/i, ["Afundo com halteres","Passada andando","Agachamento búlgaro","Step-up no banco","Afundo no Smith","Afundo reverso"]],
+  [/quadril|hip ?thrust|ponte|gl[uú]te|abdu/i, ["Hip thrust com barra","Hip thrust na máquina","Ponte de glúteo no chão","Coice no cabo","Abdução na máquina","Caminhada lateral com elástico"]],
+  [/panturr|s[oó]leo|g[eê]meo/i, ["Panturrilha em pé no Smith","Panturrilha no leg press","Panturrilha unilateral no degrau com halter","Panturrilha sentado (sóleo)","Panturrilha excêntrica no degrau"]],
+  [/remada|row/i, ["Remada curvada com barra","Remada baixa no cabo","Remada unilateral com halter","Remada na máquina","Remada no TRX"]],
+  [/puxada|barra fixa|pulldown|pull/i, ["Puxada frente","Barra fixa (com ajuda)","Pulldown braço reto","Puxada com elástico"]],
+  [/prancha|core|pallof|dead ?bug|bird|abdom/i, ["Prancha","Prancha lateral","Pallof press","Dead bug","Bird dog","Abdominal com roda"]],
+  [/manguito|rota[cç][aã]o|face ?pull|ombro|y-t-w/i, ["Rotação externa no cabo","Rotação externa com elástico","Face pull","Y-T-W no banco inclinado","Desenvolvimento com halteres leve"]],
+  [/salto|pliom|pular|skipping|caixa/i, ["Saltos na caixa","Salto vertical","Pular corda","Skipping alto","Saltos laterais","Salto unilateral"]],
+  [/supino|flex[aã]o|empurr|desenvolv/i, ["Supino com halteres","Flexão de braço","Supino na máquina","Desenvolvimento com halteres","Flexão inclinada"]],
+  [/extensora/i, ["Cadeira extensora","Agachamento sissy","Leg press pés baixos","Wall sit (isometria na parede)"]],
+];
+function exAlternatives(name){
+  const hit = EX_ALT.find(([re]) => re.test(name));
+  return hit ? hit[1].filter(n => n.toLowerCase() !== String(name).toLowerCase()) : [];
+}
+function planRefOf(sess){
+  if (!S.plan) return null;
+  for (let wi = 0; wi < S.plan.semanas.length; wi++) for (const d of (S.plan.semanas[wi].dias||[])) { const i = (d.sessoes||[]).indexOf(sess); if (i >= 0) return `${wi}.${d.dia}.${i}`; }
+  return null;
+}
+function sessByRef(ref){ const [wi, dia, i] = ref.split(".").map(Number); return (S.plan?.semanas[wi]?.dias||[]).find(d => d.dia === dia)?.sessoes?.[i]; }
+function swapPanelHTML(x, ref, ei){
+  const alts = [...new Set([...exAlternatives(x.nome), ...(S.swap.ai || [])])];
+  return `<div class="swappanel" role="group" aria-label="Alternativas para ${esc(x.nome)}">
+    <div class="note">Escolha um substituto com a mesma função:</div>
+    <div class="chips">${alts.map(a => `<button type="button" data-swappick="${esc(a)}">${esc(a)}</button>`).join("") || `<span class="note">Sem alternativas prontas para este exercício.</span>`}</div>
+    <div class="row"><button type="button" class="btn ghost sm" data-swapai ${S.swap.loading ? "disabled" : ""}>${S.swap.loading ? '<span class="spin"></span> Buscando' : "Mais opções (IA)"}</button>
+      <input class="swapcustom" placeholder="Ou digite outro exercício" aria-label="Outro exercício"><button type="button" class="btn ghost sm" data-swapcustom>Usar</button>
+      <button type="button" class="btn ghost sm" data-swapclose>Cancelar</button></div>
+  </div>`;
+}
+function applySwap(nome){
+  if (!S.swap || !nome) return;
+  const sess = sessByRef(S.swap.ref), x = sess?.exercicios?.[S.swap.ei]; if (!x) return;
+  if (!x.trocado) x.trocado = x.nome;
+  x.nome = nome; if (x.trocado === nome) delete x.trocado;
+  S.swap = null; save("plan", S.plan); flash(S.view, `Exercício trocado para ${nome}.`, false);
+}
+async function swapAI(){
+  const sess = sessByRef(S.swap.ref), x = sess?.exercicios?.[S.swap.ei]; if (!x) return;
+  const sample = await cap("sample"); if (!sample) return;
+  S.swap.loading = true; render();
+  try {
+    const r = await sample.json(`Sugira 5 exercícios de academia que substituem "${x.nome}" (${[x.series && x.reps ? x.series+"x"+x.reps : "", x.carga].filter(Boolean).join(", ")}) num treino de força para triatleta, com o mesmo padrão de movimento e músculos. Variedade de equipamentos (máquina, halter, cabo, peso corporal, elástico). ${activeComplaints().length ? "Atleta com queixas: " + activeComplaints().map(c => c.local).join(", ") + "; evite agravar." : ""} Responda só com um array JSON de nomes curtos em português.`, { modelTier:"quick" });
+    if (S.swap) S.swap.ai = Array.isArray(r) ? r.map(String).slice(0, 6) : [];
+  } catch { flash(S.view, "Não consegui buscar mais opções agora.", true); }
+  if (S.swap) S.swap.loading = false; render();
+}
 function sessHTML(s, date){
   const sp = s.sport || "other", done = date && isDone(s, date);
-  const meta = [s.min ? `${s.min} min` : "", s.dist || "", s.zona || ""].filter(Boolean).join(" · ");
-  const ex = Array.isArray(s.exercicios) && s.exercicios.length ? `<ul class="ex">${s.exercicios.map(x => `<li><span>${esc(x.nome)}</span><b>${esc([x.series && x.reps ? `${x.series}×${x.reps}` : x.series || x.reps, x.carga].filter(Boolean).join(" · "))}</b>${x.obs ? `<em>${esc(x.obs)}</em>` : ""}</li>`).join("")}</ul>` : "";
-  return `<div class="sess c-${sp}${done ? " done" : ""}"><div class="t">${esc(s.titulo || SPORTS[sp])}</div>${meta ? `<div class="m">${esc(meta)}</div>` : ""}${s.detalhe ? `<div class="d">${esc(s.detalhe)}</div>` : ""}${ex}</div>`;
+  const z = String(s.zona || "").toUpperCase().match(/Z[1-5]/)?.[0];
+  const chips = [s.min ? `<span><b>${s.min}</b> min</span>` : "", s.dist ? `<span>${esc(s.dist)}</span>` : "", z ? `<span title="${ZONA_TXT[z]}"><b>${z}</b> · ${ZONA_TXT[z]}</span>` : (s.zona ? `<span>${esc(s.zona)}</span>` : "")].filter(Boolean).join("");
+  const etapas = Array.isArray(s.etapas) && s.etapas.length
+    ? s.etapas.map(e => `<li><b>${esc(e.fase || "")}</b>${e.min ? ` <span class="mono">${e.min} min</span>` : ""}${e.desc ? `<span>${esc(e.desc)}</span>` : ""}</li>`).join("")
+    : (s.sport === "strength" ? "" : splitSteps(s.detalhe).map(x => `<li><span>${esc(x)}</span></li>`).join(""));
+  const ref = planRefOf(s);
+  const ex = Array.isArray(s.exercicios) && s.exercicios.length ? `<ul class="ex">${s.exercicios.map((x, ei) => {
+    const open = ref && S.swap && S.swap.ref === ref && S.swap.ei === ei;
+    return `<li><span>${esc(x.nome)}${x.trocado ? ` <small class="note">(no lugar de ${esc(x.trocado)})</small>` : ""}</span><b>${esc([x.series && x.reps ? `${x.series}×${x.reps}` : x.series || x.reps, x.carga].filter(Boolean).join(" · "))}</b>${x.obs ? `<em>${esc(x.obs)}</em>` : ""}
+      ${ref ? `<button type="button" class="swapbtn" data-swap="${ref}" data-ei="${ei}" aria-expanded="${!!open}">Trocar</button>` : ""}
+      ${open ? swapPanelHTML(x, ref, ei) : ""}</li>`; }).join("")}</ul>` : "";
+  return `<div class="sess c-${sp}${done ? " done" : ""}"><div class="t">${esc(s.titulo || SPORTS[sp])}</div>
+    ${chips ? `<div class="smeta">${chips}</div>` : ""}
+    ${etapas ? `<ol class="steps">${etapas}</ol>` : ""}
+    ${s.sport === "strength" && s.detalhe ? `<div class="d">${esc(s.detalhe)}</div>` : ""}
+    ${s.dica ? `<div class="tip">${esc(s.dica)}</div>` : ""}${ex}</div>`;
 }
 function complaintsHTML(withActions){
   const list = activeComplaints();
@@ -761,6 +879,7 @@ function complaintsHTML(withActions){
     return `<div class="cq"><div><b>${esc(c.local)}</b> <span class="mono">${esc(c.intensidade)}/10</span>${trend ? ` <span class="trend t-${trend}">${trend}</span>` : ""}<div class="note">${esc([c.quando, c.desde ? "desde " + c.desde : "", c.agrava ? "piora com " + c.agrava : ""].filter(Boolean).join(" · "))}</div></div>
     ${withActions ? `<button class="btn ghost" data-resolve="${esc(c.id)}">Resolvida</button>` : ""}</div>`; }).join("")}</div>`;
 }
+const RACE_DIST = { sprint:["750 m","20 km","5 km"], olimpico:["1,5 km","40 km","10 km"], "703":["1,9 km","90 km","21,1 km"], ironman:["3,8 km","180 km","42,2 km"] };
 const raceAt = () => new Date(`${S.race.date}T${S.race.time || "06:30"}:00`);
 function daysToRace(){ return S.race?.date ? Math.ceil((raceAt() - new Date()) / 864e5) : null; }
 const raceLabel = () => S.race.label ? `${S.race.label}${RACES[S.race.type] ? " · " + RACES[S.race.type].split(" (")[1].replace(")", "") : ""}` : RACES[S.race.type] ? RACES[S.race.type].split(" (")[0] : "Distância a definir";
@@ -769,7 +888,13 @@ function countdownHTML(big){
   return `<section class="cd${big ? " big" : ""}" aria-label="Tempo até a prova">
     <img class="race-logo" src="data:image/jpeg;base64,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" alt="All Limits · Lagoa dos Ingleses" width="420" height="229">
     <div class="cd-meta"><div class="eyebrow">Largada</div><h2 class="cd-name">${esc(S.race.name || "Prova da equipe")}</h2>
-      <div class="note">${raceAt().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} · ${esc(S.race.time || "06:30")} · ${esc(raceLabel())}${S.race.place ? " · " + esc(S.race.place) : ""}</div></div>
+      <dl class="cd-info">
+        <div><dt>Data</dt><dd>${(d => d.charAt(0).toUpperCase() + d.slice(1))(raceAt().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))}</dd></div>
+        <div><dt>Largada</dt><dd>${esc((S.race.time || "06:30").replace(":", "h"))}</dd></div>
+        <div><dt>Prova</dt><dd>${esc(S.race.label || raceLabel())}</dd></div>
+        ${RACE_DIST[S.race.type] ? `<div class="wide"><dt>Distâncias</dt><dd class="cd-dist"><span><i style="background:var(--swim)"></i>Natação ${RACE_DIST[S.race.type][0]}</span><span><i style="background:var(--bike)"></i>Bike ${RACE_DIST[S.race.type][1]}</span><span><i style="background:var(--run)"></i>Corrida ${RACE_DIST[S.race.type][2]}</span></dd></div>` : ""}
+        ${S.race.place ? `<div class="wide"><dt>Local</dt><dd>${esc(S.race.place)}</dd></div>` : ""}
+      </dl></div>
     <div class="cd-clock mono" data-cd>${cdParts().map(([v,l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("")}</div></section>`;
 }
 function cdParts(){
@@ -853,6 +978,32 @@ function fitnessChart(series){
   </svg>`;
 }
 const score = ctl => Math.max(0, Math.min(100, ctl));
+const REF_OLY = { swim:[4000,6000,"m"], bike:[90,150,"km"], run:[20,35,"km"] };  // referência semanal para amador em prova olímpica (8–10 h/sem)
+function motivosHTML(now){
+  const wk = 6, since = addDays(new Date(), -wk*7), xs = S.activities.filter(a => new Date(a.date) >= since);
+  const days = new Set(xs.map(a => dayKey(a.date))).size;
+  const per = sp => { const ys = xs.filter(a => a.sport === sp); const d = ys.reduce((s,a)=>s+a.dist,0)/wk; return { n: ys.length, v: sp === "swim" ? d : d/1000 }; };
+  const loadBy = {}; xs.forEach(a => { loadBy[a.sport] = (loadBy[a.sport]||0) + loadOf(a); });
+  const totLoad = Object.values(loadBy).reduce((a,b)=>a+b,0) || 1;
+  const names = { swim:"Natação", bike:"Bike", run:"Corrida" };
+  const sportRows = ["swim","bike","run"].map(sp => {
+    const p = per(sp), [lo, hi, u] = REF_OLY[sp], pct = Math.min(100, p.v / ((lo+hi)/2) * 100);
+    const verdict = p.v >= lo ? (p.v > hi*1.15 ? "acima da referência" : "dentro da referência") : p.v >= lo*0.5 ? "abaixo da referência" : "bem abaixo da referência";
+    const txt = p.n === 0 ? `Nenhum treino de ${names[sp].toLowerCase()} nas últimas ${wk} semanas: é o ponto que mais puxa sua nota para baixo nessa modalidade.`
+      : `${fmtNum(p.v, sp === "swim" ? 0 : 1)} ${u}/semana em média (${p.n} treino${p.n === 1 ? "" : "s"} em ${wk} semanas). Referência para olímpico: ${fmtNum(lo,0)}–${fmtNum(hi,0)} ${u}/semana, então você está ${verdict}.`;
+    return `<div class="mot"><div class="row" style="justify-content:space-between"><b class="c-${sp}" style="color:var(--${sp})">${names[sp]}</b><span class="mono note">${fmtNum(pct,0)}% da referência · ${fmtNum(loadBy[sp]/totLoad*100||0,0)}% da sua carga</span></div>
+      <div class="meter"><i style="width:${pct}%;background:var(--${sp})"></i></div><p>${txt}</p></div>`;
+  }).join("");
+  const nota = score(now.ctl), faixa = nota < 20 ? "início de preparação" : nota < 40 ? "base em construção" : nota < 60 ? "bom nível amador" : nota < 80 ? "muito bem preparado" : "nível de elite";
+  const weakest = ["swim","bike","run"].map(sp => [sp, per(sp).v / ((REF_OLY[sp][0]+REF_OLY[sp][1])/2)]).sort((a,b) => a[1]-b[1])[0][0];
+  return `<details class="motivos"><summary>Ver motivos da nota</summary>
+    <p><b>${fmtNum(nota,1)} de 100 = ${faixa}.</b> A nota é a sua carga média diária dos últimos 42 dias. Para chegar bem a uma prova olímpica, um amador costuma estar entre 45 e 70.</p>
+    <p><b>Constância:</b> você treinou em ${days} dos últimos ${wk*7} dias${days < wk*7*0.4 ? ". Treinar mais dias por semana, mesmo curto, é o jeito mais rápido de subir a nota." : "."}</p>
+    ${sportRows}
+    <p><b>O que fazer:</b> o maior ganho agora está na ${names[weakest].toLowerCase()}. ${now.tsb < -20 ? "Mas sua fadiga está alta: suba o volume depois de 2–3 dias leves." : "Aumente o volume dela aos poucos, no máximo 10% por semana."}</p>
+    <p class="note">Referências por semana para amador em prova olímpica (8–10 h de treino): natação 4–6 km, bike 90–150 km, corrida 20–35 km.</p>
+  </details>`;
+}
 function dataQuality(){
   const xs = S.activities; if (!xs.length) return { enough:false, msg:"Ainda não há treinos registrados. Sincronize o Strava ou registre um treino." };
   const first = xs.reduce((m,a) => a.date < m ? a.date : m, xs[0].date);
@@ -1248,6 +1399,7 @@ function viewPainel(){
       ${now ? `<div class="cond-main"><div class="big mono">${fmtNum(score(now.ctl),1)}</div><div><div class="note">de 100</div>${change != null ? `<div class="delta ${change >= 0 ? "good" : "bad"}">${change >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(change),1)}% em 4 semanas</div>` : ""}</div></div>
         <div class="meter" aria-hidden="true"><i style="width:${score(now.ctl)}%"></i></div>
         <div class="state" style="--c:${st.c}"><b>${st.t}</b><span>${st.d}</span></div>
+        ${motivosHTML(now)}
         <div class="kv"><div><span>Fadiga (7 dias)</span><b>${fmtNum(now.atl,1)}</b></div><div><span>Equilíbrio</span><b>${now.tsb > 0 ? "+" : ""}${fmtNum(now.tsb,1)}</b></div><div><span>Carga da semana</span><b>${fmtNum(series.slice(-7).reduce((s,x)=>s+x.load,0),1)} pts</b></div></div>`
       : `<p class="muted" style="margin:0">${dq.msg}</p><div class="row"><button class="btn" data-act="showlog">Registrar treino</button><button class="btn ghost" data-act="sync">Atualizar Strava</button></div>`}
     </section>
@@ -1270,7 +1422,7 @@ function viewPainel(){
         ${rows.map(r => `<tr><td>${r.c ? `<i class="dot" style="--c:var(--${r.c})"></i>` : ""}${r.k}</td><td class="num muted">${r.a ? r.f(r.a) : "—"}</td><td class="num">${r.b ? r.f(r.b) : "—"}</td><td class="num">${deltaHTML(r)}</td></tr>`).join("")}</tbody></table>`
         : `<p class="muted" style="margin:0">Sem histórico suficiente para comparar.</p>`}</div>
       <div class="stack"><div class="eyebrow">Leitura do coach</div>
-        <div class="coachnote">${p.note ? esc(p.note) : `<span class="muted">${S.busy.note ? "Analisando sua evolução…" : "O relatório aparece após a primeira sincronização."}</span>`}</div>
+        <div class="coachnote">${p.noteObj || p.note ? coachNoteHTML(p) : `<span class="muted">${S.busy.note ? "Analisando sua evolução…" : "O relatório aparece após a primeira sincronização."}</span>`}</div>
         ${activeComplaints().length ? `<div><div class="eyebrow" style="margin-bottom:8px">Corpo</div>${complaintsHTML(false)}</div>` : ""}
         <div><button class="btn ghost" data-act="note" ${S.busy.note ? "disabled" : ""}>${S.busy.note ? '<span class="spin"></span> Analisando' : "Atualizar relatório"}</button></div></div>
     </div>
@@ -1286,7 +1438,51 @@ function viewTreinos(){
   const head = `<div class="hero"><div><div class="eyebrow">Treinos${S.plan ? ` · fase ${esc(S.plan.fase || "")}` : ""}</div><h1>Planejado e feito</h1><p>${S.plan ? esc(S.plan.resumo || "") : "Seu plano de 4 semanas e tudo o que você já treinou."}</p></div>${actions}</div>
     ${msgHTML("treinos")}${msgHTML("plano")}
     ${S.showLog ? `<div style="margin-bottom:16px">${logFormHTML()}</div>` : ""}`;
-  return head + planSectionHTML() + doneTableHTML() + metodoHTML();
+  return head + calendarHTML() + planSectionHTML() + doneTableHTML() + metodoHTML();
+}
+function sessionsOn(date){
+  if (!S.plan) return [];
+  const k = dayKey(date); if (S.plan.inicio && k < S.plan.inicio) return [];
+  const wi = Math.floor((mondayOf(date) - new Date(S.plan.start + "T00:00:00"))/(7*864e5));
+  const d = (S.plan.semanas[wi]?.dias||[]).find(x => x.dia === (date.getDay()+6)%7);
+  return (d?.sessoes||[]).filter(s => s.sport !== "rest");
+}
+function calendarHTML(){
+  const today = new Date(new Date().toDateString()), todayK = dayKey(today);
+  const base = S.calMonth ? new Date(S.calMonth + "-01T12:00:00") : new Date(today.getFullYear(), today.getMonth(), 1);
+  const first = new Date(base.getFullYear(), base.getMonth(), 1), gridStart = mondayOf(first);
+  const raceK = S.race.date, sel = S.calSel || todayK;
+  const doneBy = {}; S.activities.forEach(a => (doneBy[dayKey(a.date)] ||= []).push(a));
+  const cells = Array.from({length:42}, (_, i) => addDays(gridStart, i));
+  const lastRow = cells.findLastIndex ? cells.findLastIndex(d => d.getMonth() === base.getMonth()) : 41;
+  const rows = Math.ceil((lastRow + 1)/7);
+  const planEnd = S.plan?.fim || (S.plan ? dayKey(addDays(new Date(S.plan.start+"T00:00:00"), 27)) : null);
+  const selD = new Date(sel + "T12:00:00"), selPlan = sessionsOn(selD), selDone = doneBy[sel] || [];
+  const dtr = daysToRace();
+  return `<section class="panel cal" style="margin-bottom:16px">
+    <div class="calhead">
+      <div><div class="eyebrow">Hoje</div><b>${(t => t.charAt(0).toUpperCase()+t.slice(1))(today.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}))}</b></div>
+      <div><div class="eyebrow">Plano atual</div><b>${S.plan ? `${new Date((S.plan.inicio || S.plan.start)+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})} → ${new Date(planEnd+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}` : "não gerado"}</b></div>
+      <div><div class="eyebrow">Prova</div><b>${new Date(raceK+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})} · faltam ${dtr} dias</b></div>
+    </div>
+    <div class="calnav"><button class="btn ghost sm" data-calm="-1" aria-label="Mês anterior">‹</button><h3>${(t => t.charAt(0).toUpperCase()+t.slice(1))(base.toLocaleDateString("pt-BR",{month:"long",year:"numeric"}))}</h3><button class="btn ghost sm" data-calm="1" aria-label="Próximo mês">›</button>${base.getMonth() !== today.getMonth() || base.getFullYear() !== today.getFullYear() ? `<button class="btn ghost sm" data-calm="0">Hoje</button>` : ""}</div>
+    <div class="calgrid" role="grid">${DOW.map(d => `<div class="cdow">${d}</div>`).join("")}${cells.slice(0, rows*7).map(d => {
+      const k = dayKey(d), out = d.getMonth() !== base.getMonth(), past = k < todayK, plan = sessionsOn(d), done = doneBy[k] || [];
+      const inPlan = S.plan && k >= (S.plan.inicio || S.plan.start) && planEnd && k <= planEnd;
+      return `<button class="cday${out ? " out" : ""}${past ? " past" : ""}${k === todayK ? " today" : ""}${k === sel ? " sel" : ""}${k === raceK ? " race" : ""}${inPlan ? " inplan" : ""}" data-cald="${k}" aria-label="${d.toLocaleDateString("pt-BR")}">
+        <span class="num">${d.getDate()}</span>
+        ${k === raceK ? `<span class="flag">PROVA</span>` : ""}
+        <span class="dots">${done.map(a => `<i class="dn" style="background:var(--${["swim","bike","run"].includes(a.sport) ? a.sport : "ink"})"></i>`).join("")}${!past ? plan.map(p => `<i class="pl" style="border-color:var(--${["swim","bike","run"].includes(p.sport) ? p.sport : p.sport === "brick" ? "run" : "ink"})"></i>`).join("") : ""}</span>
+      </button>`; }).join("")}</div>
+    <div class="legend" style="margin-top:10px"><span style="--c:var(--ink)">● feito</span><span style="--c:var(--muted)">○ planejado</span><span style="--c:var(--run)">Natação / Bike / Corrida pelas cores</span></div>
+    <div class="calday">
+      <h3>${(t => t.charAt(0).toUpperCase()+t.slice(1))(selD.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}))}${sel === todayK ? " · hoje" : ""}${sel === raceK ? " · dia da prova" : ""}</h3>
+      ${sel < todayK
+        ? (selDone.length ? `<div class="today-list">${selDone.map(doneHTML).join("")}</div>` : `<p class="note" style="margin:0">Nenhum treino registrado neste dia.</p>`)
+        : (selPlan.length ? `<div class="today-list">${selPlan.map(s => sessHTML(s, sel === todayK ? selD : null)).join("")}</div>${selDone.length ? `<div class="lbl">Feito</div>${selDone.map(doneHTML).join("")}` : ""}`
+          : `<p class="note" style="margin:0">${!S.plan ? "Gere o plano para ver os treinos." : planEnd && sel > planEnd ? "Fora do plano atual. Um novo bloco é gerado ao fim deste." : "Descanso."}</p>`)}
+    </div>
+  </section>`;
 }
 function doneTableHTML(){
   const xs = S.activities.slice(0, 30);
@@ -1375,14 +1571,17 @@ function viewEquipe(){
     </form></details>` : ""}
   ${team.length ? competitionHTML(team, me) : `<div class="empty"><h3>Ninguém por aqui ainda</h3><p class="muted" style="margin:0">Cada participante aparece depois de concluir o cadastro.</p></div>`}`;
 }
+const P = (t, k) => t.periods?.[S.period || "semana"]?.[k];
 const BOARDS = [
-  { k:"points", t:"Pontos da semana", v: t => t.points ?? 0, f: v => `${v} pts` },
+  { k:"points", t:"Pontos", v: t => P(t,"points") ?? 0, f: v => `${fmtNum(v,0)} pts` },
   { k:"forma", t:"Condicionamento", v: t => t.forma ?? 0, f: v => fmtNum(v,1) },
-  { k:"evol", t:"Evolução 4 sem", v: t => t.forma4 ? (t.forma - t.forma4)/t.forma4*100 : 0, f: v => `${v > 0 ? "+" : ""}${fmtNum(v,1)}%` },
-  { k:"const", t:"Constância", v: t => t.streakWeeks ?? 0, f: v => `${v} sem` },
-  { k:"swim", t:"Natação no mês", v: t => t.month?.swim_m ?? 0, f: v => `${fmtNum(v,0)} m` },
-  { k:"bike", t:"Bike no mês", v: t => t.month?.bike_km ?? 0, f: v => `${fmtNum(v,0)} km` },
-  { k:"run", t:"Corrida no mês", v: t => t.month?.run_km ?? 0, f: v => `${fmtNum(v,1)} km` }
+  { k:"evol", t:"Evolução", v: t => { const f = P(t,"forma"), i = P(t,"forma_ini"); return f != null && i ? (f - i)/i*100 : 0; }, f: v => `${v > 0 ? "+" : ""}${fmtNum(v,1)}%` },
+  { k:"hours", t:"Horas", v: t => P(t,"hours") ?? 0, f: v => `${fmtNum(v,1)} h` },
+  { k:"sessions", t:"Treinos", v: t => P(t,"sessions") ?? 0, f: v => `${v}` },
+  { k:"swim", t:"Natação", v: t => P(t,"swim_m") ?? 0, f: v => `${fmtNum(v,0)} m` },
+  { k:"bike", t:"Bike", v: t => P(t,"bike_km") ?? 0, f: v => `${fmtNum(v,1)} km` },
+  { k:"run", t:"Corrida", v: t => P(t,"run_km") ?? 0, f: v => `${fmtNum(v,1)} km` },
+  { k:"const", t:"Constância", v: t => t.streakWeeks ?? 0, f: v => `${v} sem` }
 ];
 function miniWeeks(t){
   const ws = t.weeks12 || []; if (!ws.length) return "";
@@ -1399,11 +1598,14 @@ function competitionHTML(team, me){
   const gave = key => !!S.kudos.find(k => k.__id === me)?.to?.[key];
   const verb = { swim:"nadou", bike:"pedalou", run:"correu", strength:"treinou força", brick:"fez um brick", other:"treinou" };
   return `
-  <section class="panel" style="margin-bottom:16px"><div class="ph"><h2>Placar</h2><span class="note">semana de segunda a hoje · mês corrente</span></div>
+  <section class="panel" style="margin-bottom:16px"><div class="ph"><h2>Placar</h2>
+      <div class="seg" role="group" aria-label="Período">${Object.entries(PERIODS).map(([k,v]) => `<button data-period="${k}" aria-pressed="${(S.period || "semana") === k}">${v}</button>`).join("")}</div></div>
     <div class="weektabs" style="margin-bottom:16px">${BOARDS.map(b => `<button data-board="${b.k}" aria-pressed="${b.k === board.k}">${b.t}</button>`).join("")}</div>
+    <p class="note" style="margin:0 0 14px">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde o início do período (${periodStart(S.period || "semana").toLocaleDateString("pt-BR")}).` : `${PERIODS[S.period || "semana"]}: desde ${periodStart(S.period || "semana").toLocaleDateString("pt-BR")}.`}</p>
     <div class="podium">${pod.map((t, i) => `<div class="pod p${i+1}"><div class="medal">${i+1}º</div><b>${esc(t.nick)}${t.__id === me ? " (você)" : ""}</b><span class="mono">${board.f(board.v(t))}</span></div>`).join("")}</div>
     ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map(t => `<li><span>${esc(t.nick)}${t.__id === me ? " (você)" : ""}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
-    ${board.k === "points" ? `<p class="note" style="margin:12px 0 0">Pontos = 10 por hora treinada (até 15 h) + 5 por treino (até 10) + metade da aderência ao plano + 20 se fez as 3 modalidades. Premia constância, não só volume.</p>` : ""}
+    ${board.k === "points" ? `<p class="note" style="margin:12px 0 0">Pontos = 10 por hora treinada + 5 por treino (até 2 por dia) + 20 se fez as 3 modalidades no período. Premia constância, não só volume.</p>` : ""}
+    ${team.some(t => !t.periods) ? `<p class="note" style="margin:8px 0 0">Quem ainda não abriu o app nesta versão aparece com zero até entrar de novo.</p>` : ""}
   </section>
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4)/t.forma4*100).toFixed(1) : null;
     return `<article class="mate${t.__id === me ? " me" : ""}">
@@ -1482,6 +1684,9 @@ function profileFormHTML(onboarding){
       <div class="fld full"><label>Qual é seu ponto fraco?</label>${pills("q_fraco", ["Natação","Bike","Corrida","Nenhum"], p.fraco || "")}</div>
       <div class="fld"><label>Possui rolo de treino?</label>${pills("q_rolo", ["Sim","Não"], p.rolo || "")}</div>
       <div class="fld"><label>Corre na esteira ou na rua?</label>${pills("q_corre", ["Rua","Esteira","Os dois"], p.corre || "")}</div>
+      <div class="fld full"><label>Em um dia comum, quero treinar:</label>
+        <div class="days pills">${[["1","Só 1 modalidade"],["2","Até 2 modalidades"],["1+gym","1 modalidade + academia"],["todas","Todas que o plano pedir"]].map(([v,l]) => `<label><input type="radio" name="q_pordia" value="${v}" ${p.porDia === v ? "checked" : ""}>${l}</label>`).join("")}</div></div>
+      <div class="fld full"><label>Sábado, domingo e feriados: posso treinar todas as modalidades no mesmo dia?</label>${pills("q_fds", ["Sim","Não"], p.fds || "")}</div>
       <div class="fld full"><div class="row"><button class="btn" type="submit">${onboarding ? "Concluir cadastro" : "Salvar perfil"}</button>${!onboarding ? '<span class="note">Gere um novo plano após mudanças grandes.</span>' : ""}</div></div>
     </form>`;
 }
@@ -1532,6 +1737,14 @@ document.addEventListener("click", e => {
   const w = e.target.closest("[data-week]"); if (w){ S.week = +w.dataset.week; render(); return; }
   const q = e.target.closest("[data-ask]"); if (q){ sendChat(q.dataset.ask); return; }
   const qg = e.target.closest("[data-ask-go]"); if (qg){ go("coach"); sendChat(qg.dataset.askGo); return; }
+  const sw = e.target.closest("[data-swap]"); if (sw){ const same = S.swap && S.swap.ref === sw.dataset.swap && S.swap.ei === +sw.dataset.ei; S.swap = same ? null : { ref: sw.dataset.swap, ei: +sw.dataset.ei }; render(); return; }
+  const sp = e.target.closest("[data-swappick]"); if (sp){ applySwap(sp.dataset.swappick); return; }
+  if (e.target.closest("[data-swapai]")){ swapAI(); return; }
+  if (e.target.closest("[data-swapcustom]")){ const v = e.target.closest(".swappanel")?.querySelector(".swapcustom")?.value.trim(); if (v) applySwap(v); return; }
+  if (e.target.closest("[data-swapclose]")){ S.swap = null; render(); return; }
+  const cm = e.target.closest("[data-calm]"); if (cm){ const n = +cm.dataset.calm, t = new Date(); const b = S.calMonth ? new Date(S.calMonth+"-01T12:00:00") : new Date(t.getFullYear(), t.getMonth(), 1); const nb = n === 0 ? new Date(t.getFullYear(), t.getMonth(), 1) : new Date(b.getFullYear(), b.getMonth()+n, 1); S.calMonth = `${nb.getFullYear()}-${String(nb.getMonth()+1).padStart(2,"0")}`; render(); return; }
+  const cd = e.target.closest("[data-cald]"); if (cd){ S.calSel = cd.dataset.cald; render(); return; }
+  const pd = e.target.closest("[data-period]"); if (pd){ S.period = pd.dataset.period; render(); return; }
   const bd = e.target.closest("[data-board]"); if (bd){ S.board = bd.dataset.board; render(); return; }
   const kd = e.target.closest("[data-kudo]"); if (kd && S.db && S.uid){
     const mine = S.kudos.find(k => k.__id === S.uid) || { __id: S.uid, to: {} }; const to = { ...(mine.to||{}) };
@@ -1572,7 +1785,7 @@ document.addEventListener("submit", e => {
       peso: parseFloat($("#peso").value) || null, altura: parseFloat($("#altura").value) || null,
       hours: +$("#hours").value, pool: $("#pool").value, days,
       lesao: pick("q_lesao") || "Não", lesaoQual: pick("q_lesao") === "Sim" ? $("#q_lesao_qual").value.trim() : "",
-      fraco: pick("q_fraco"), rolo: pick("q_rolo"), corre: pick("q_corre"), updatedAt: new Date().toISOString() };
+      fraco: pick("q_fraco"), rolo: pick("q_rolo"), corre: pick("q_corre"), porDia: pick("q_pordia"), fds: pick("q_fds"), updatedAt: new Date().toISOString() };
     delete S.profile.obs;
     if (S.profile.lesao === "Sim" && S.profile.lesaoQual && !activeComplaints().some(c => c.local.toLowerCase() === S.profile.lesaoQual.toLowerCase())){
       (S.profile.complaints ||= []).push({ id: "q" + Date.now(), local: S.profile.lesaoQual, intensidade: null, data: dayKey(new Date()), quando: "informado no cadastro", historico: [] });
