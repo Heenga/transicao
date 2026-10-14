@@ -52,7 +52,7 @@ Onde ficam os dados: **Table Editor → documents**. Cada linha é um assunto de
 | `NEXT_PUBLIC_SUPABASE_URL` | do Passo 1 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | do Passo 1 |
 | `SUPABASE_SERVICE_ROLE_KEY` | do Passo 1 |
-| `GROUP_INVITE_CODE` | código que seus amigos vão digitar ao criar a conta |
+| `GROUP_INVITE_CODE` | código do grupo (desativado no momento; `REQUIRE_GROUP_CODE` em `app/api/signup`) |
 | `ADMIN_USERNAMES` | seu usuário (ex.: `henrique`) — pode editar a prova e exportar dados do grupo |
 | `MAX_MEMBERS` | `4` |
 | `ANTHROPIC_API_KEY` | do Passo 3 |
@@ -65,9 +65,9 @@ Onde ficam os dados: **Table Editor → documents**. Cada linha é um assunto de
 
 ## Passo 5 — Primeiro acesso
 
-1. Abra a URL → **Criar conta** → usuário `henrique`, senha (4+ caracteres, pode ser só números) e o código do grupo.
+1. Abra a URL → **Criar conta** → usuário `henrique`, senha (4+ caracteres, pode ser só números).
 2. Faça o cadastro de atleta → **Configurações → Conexões → Conectar meu Strava**.
-3. Mande para os amigos: o link + o código do grupo. Cada um cria a própria conta.
+3. Mande o link para os amigos. Cada um cria a própria conta.
 
 ## Rodar no computador (opcional)
 
@@ -80,7 +80,7 @@ npm run dev                  # http://localhost:3000
 ## Estrutura
 
 ```
-app/api/signup              cria conta (confere código do grupo e limite de membros)
+app/api/signup              cria conta (confere o limite de membros)
 app/api/me                  quem está logado, organizador?, Strava conectado?
 app/api/ai                  proxy da IA (chave fica no servidor)
 app/api/strava/connect      inicia o login no Strava da pessoa

@@ -36,14 +36,14 @@
     <span class="logo-mark lg" style="width:110px;height:110px" aria-hidden="true"></span>
     <div class="eyebrow">All Limits · High Limits · 30/05/2027</div>
     <h1>Transição</h1>
-    <p class="muted" style="margin:0">Treino de triatlo do grupo. Entre com seu usuário ou crie sua conta com o código do grupo.</p>
+    <p class="muted" style="margin:0">Treino de triatlo do grupo. Entre com seu usuário ou crie sua conta.</p>
     <div class="authseg" role="group" aria-label="Entrar ou criar conta"><button type="button" data-authmode="login" aria-pressed="true">Já tenho conta</button><button type="button" data-authmode="signup" aria-pressed="false">Criar conta</button></div>
     <form id="authform" class="stack" data-mode="login">
       <div class="fld"><label for="auth_user">Usuário</label><input id="auth_user" autocomplete="username" autocapitalize="none" spellcheck="false" required pattern="[A-Za-z0-9._]{3,20}" placeholder="ex: henrique"></div>
       <div class="fld"><label for="auth_pass">Senha</label><input id="auth_pass" type="password" required minlength="4" autocomplete="current-password" placeholder="mínimo 4, ex: 1234"></div>
       <div id="auth_signup_extra" class="stack" hidden>
         <div class="fld"><label for="auth_pass2">Repita a senha</label><input id="auth_pass2" type="password" minlength="4" autocomplete="new-password"></div>
-        <div class="fld"><label for="auth_code">Código do grupo</label><input id="auth_code" autocomplete="off" placeholder="peça ao organizador"></div>
+        <div class="fld" hidden><label for="auth_code">Código do grupo</label><input id="auth_code" autocomplete="off" placeholder="peça ao organizador"></div>
       </div>
       <div id="auth_err" class="status err" hidden></div>
       <button id="auth_submit" class="btn" type="submit">Entrar</button>

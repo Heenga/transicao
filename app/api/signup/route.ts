@@ -2,7 +2,10 @@ import { supabaseAdmin, usernameToEmail, json, fail, env, rateLimited } from "@/
 
 export const runtime = "nodejs";
 
-/** Cria a conta (usuário + senha) depois de conferir o código do grupo. */
+// Código do grupo desativado por enquanto (só existe um grupo). Para reativar: true + mostrar o campo #auth_code.
+const REQUIRE_GROUP_CODE = false;
+
+/** Cria a conta (usuário + senha); o limite de membros continua valendo. */
 export async function POST(req: Request) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] || "local";
   if (rateLimited("signup:" + ip, 8, 10 * 60_000)) return fail("rate_limited", "Muitas tentativas. Espere alguns minutos.", 429);
@@ -15,7 +18,7 @@ export async function POST(req: Request) {
 
   if (!/^[a-z0-9._]{3,20}$/.test(username)) return fail("bad_username", "Usuário deve ter 3 a 20 caracteres: letras minúsculas, números, ponto ou _.");
   if (password.length < 6) return fail("weak_password", "A senha precisa ter pelo menos 4 caracteres.");
-  if (code !== env("GROUP_INVITE_CODE")) return fail("bad_code", "Código do grupo incorreto. Peça ao organizador.", 403);
+  if (REQUIRE_GROUP_CODE && code !== env("GROUP_INVITE_CODE")) return fail("bad_code", "Código do grupo incorreto. Peça ao organizador.", 403);
 
   const sb = supabaseAdmin();
   const { count } = await sb.from("members").select("user_id", { count: "exact", head: true });
