@@ -624,7 +624,7 @@ body[data-view="coach"][data-ctab="conversa"] main{padding-bottom:0;gap:0}
 .t-estável{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
 
 /* ---------- Comida ---------- */
-.mrings{display:grid;grid-template-columns:auto auto 1fr;gap:12px;align-items:center}
+.mrings{display:grid;grid-template-columns:auto auto auto 1fr;gap:12px;align-items:center}
 .mring{display:flex;flex-direction:column;align-items:center;gap:6px;font:600 12px/1 var(--body);color:var(--muted)}
 .mring .ring-in b{font-size:22px}
 .mside{display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -752,7 +752,7 @@ form#profile .days:not(.pills) label{flex:1;min-width:40px;padding:0}
   .qa b{font-size:12px} .qa-i{width:38px;height:38px}
   .stats3 b{font-size:16px}
   .cd-clock b{font-size:26px}
-  .mrings{grid-template-columns:1fr 1fr}.mside{grid-column:1/-1;flex-direction:row}.mside > div{flex:1}
+  .mrings{grid-template-columns:repeat(3,1fr);gap:8px}.mside{grid-column:1/-1;flex-direction:row}.mside > div{flex:1}
   .sugg{grid-template-columns:1fr}
 }
 @media (min-width:600px){body{box-shadow:0 0 0 1px var(--line)}}

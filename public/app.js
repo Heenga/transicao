@@ -1662,7 +1662,7 @@ function dietTargets(){
   const kg = Number(S.profile?.peso); if (!kg) return null;
   const min = dayMinutes(new Date());
   const cPerKg = min < 45 ? 5 : min < 90 ? 6 : min < 150 ? 7 : 8;
-  return { minutos_treino_hoje: Math.round(min), carbo_g: Math.round(kg*cPerKg), carbo_g_kg: cPerKg, proteina_g: Math.round(kg*1.6), proteina_faixa: `${Math.round(kg*1.4)}–${Math.round(kg*2)} g`, agua_l: +(kg*0.035 + min/60*0.6).toFixed(1) };
+  return { minutos_treino_hoje: Math.round(min), carbo_g: Math.round(kg*cPerKg), carbo_g_kg: cPerKg, proteina_g: Math.round(kg*1.6), proteina_faixa: `${Math.round(kg*1.4)}–${Math.round(kg*2)} g`, gordura_g: Math.round(kg*1), gordura_faixa: `${Math.round(kg*0.8)}–${Math.round(kg*1.2)} g`, agua_l: +(kg*0.035 + min/60*0.6).toFixed(1) };
 }
 function addDietEntry(e){
   const entry = { id: "d" + Date.now(), data: e.data && /^\d{4}-\d{2}-\d{2}$/.test(e.data) ? e.data : dayKey(new Date()), texto: String(e.texto||"").slice(0, 2000), foto: !!e.foto, itens: e.itens || [], confianca: e.confianca || "", est: e.est || {}, dicas: e.dicas || [], resumo: e.resumo || "", perguntas: e.perguntas || [] };
@@ -2560,7 +2560,7 @@ function composerState(){
 /* ---------- Alimentação ---------- */
 function mring(label, val, target, color){
   const pct = target ? (val || 0) / target * 100 : 0;
-  return `<div class="mring">${ring(pct, 96, 9, color, `<b>${val != null ? Math.round(val) : 0}</b><span>de ${target} g</span>`)}<span>${label}</span></div>`;
+  return `<div class="mring">${ring(pct, 84, 8, color, `<b>${val != null ? Math.round(val) : 0}</b><span>de ${target} g</span>`)}<span>${label}</span></div>`;
 }
 function viewDieta(){
   const p = S.profile || {}, t = dietTargets(), last = (S.diet || []).slice().reverse();
@@ -2568,9 +2568,9 @@ function viewDieta(){
   return `<header class="ph1"><div><div class="eyebrow">Alimentação</div><h1>Combustível</h1></div></header>
     ${!p.peso ? `<button type="button" class="banner" data-sheet="weight">${ic("scale", 22)}<span><b>Informe seu peso</b><span>Com ele o app calcula quanto carbo e proteína seu treino pede.</span></span>${ic("chev", 18)}</button>` : ""}
     ${t ? `<section class="card"><div class="card-h"><h2>Hoje</h2><span class="note">${t.minutos_treino_hoje} min de treino</span></div>
-      <div class="mrings">${mring("Carboidrato", sum("carbo_g"), t.carbo_g, "var(--bike)")}${mring("Proteína", sum("proteina_g"), t.proteina_g, "var(--run)")}
+      <div class="mrings">${mring("Carboidrato", sum("carbo_g"), t.carbo_g, "var(--bike)")}${mring("Proteína", sum("proteina_g"), t.proteina_g, "var(--run)")}${mring("Gordura", sum("gordura_g"), t.gordura_g, "var(--swim)")}
         <div class="mside"><div><span>${ic("drop", 15)} Água</span><b>~${fmtNum(t.agua_l, 1)} L</b></div><div><span>${ic("flame", 15)} Registrado</span><b>${fmtNum(sum("kcal"), 0)} kcal</b></div></div></div>
-      <p class="note">Carbo ${t.carbo_g_kg} g/kg pelo treino de hoje · proteína ${t.proteina_faixa}. Estimativas para orientar, não substituem nutricionista.</p></section>` : ""}
+      <p class="note">Carbo ${t.carbo_g_kg} g/kg pelo treino de hoje · proteína ${t.proteina_faixa} · gordura ${t.gordura_faixa}. Estimativas para orientar, não substituem nutricionista.</p></section>` : ""}
     <section class="card"><div class="card-h"><h2>O que você comeu?</h2></div>
       <form id="dietform" class="stack">
         ${S.dietImgUrl ? `<div class="photo"><img src="${S.dietImgUrl}" alt="Foto do prato"><button type="button" class="btn ghost sm" data-act="cleardietimg">Trocar foto</button></div>`
@@ -2585,7 +2585,7 @@ function viewDieta(){
       ${d.resumo ? `<p>${esc(d.resumo)}</p>` : ""}
       ${d.dicas?.length ? `<ul class="tips">${d.dicas.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${d.itens?.length ? `<details class="more"><summary>${d.foto ? "O que tinha no prato" : "Itens"} (${d.itens.length})${d.confianca ? ` <span class="note">confiança ${esc(d.confianca)}</span>` : ""}</summary><div class="items">${d.itens.map(i => `<div><span>${esc(i.alimento)}<em>${esc(i.porcao || "")}</em></span><b>${i.carbo_g ?? "—"} g C · ${i.proteina_g ?? "—"} g P</b></div>`).join("")}</div></details>` : ""}
-      ${d.perguntas?.length ? `<div class="chips">${d.perguntas.map(q => `<button type="button" class="chip" data-ask-go="${esc(q)}">${esc(q)}</button>`).join("")}</div>` : ""}
+      ${d.perguntas?.length ? `<div class="lbl">O coach pergunta · toque para responder</div><div class="chips">${d.perguntas.map(q => `<button type="button" class="chip" data-ask-reply="${esc(q)}" data-meal="${esc(d.data)}|${esc(d.texto.slice(0, 80))}">${esc(q)}</button>`).join("")}</div>` : ""}
     </article>`).join("")}</section>` : ""}
     ${weightCardHTML()}`;
 }
@@ -2597,8 +2597,17 @@ function weightCardHTML(){
 }
 
 /* ---------- Grupo ---------- */
+/** O resumo de cada atleta é gravado quando ELE abre o app. Se foi gravado antes do início de um período
+    (ontem, semana passada, mês passado), os números daquele período ficam zerados até ele abrir o app de novo. */
+function freshTeam(t){
+  const at = t.updatedAt ? new Date(t.updatedAt) : null; if (!at) return t;
+  const zero = { points: 0, hours: 0, sessions: 0, swim_m: 0, bike_km: 0, run_km: 0 };
+  const periods = t.periods ? Object.fromEntries(Object.entries(t.periods).map(([k, v]) => [k, k !== "periodo" && at < periodStart(k) ? { ...v, ...zero } : v])) : t.periods;
+  const oldWeek = at < mondayOf(new Date());
+  return { ...t, periods, ...(oldWeek ? { week: {}, points: 0 } : {}) };
+}
 function viewEquipe(){
-  const team = S.team.slice().sort((a, b) => (b.week?.hours || 0) - (a.week?.hours || 0)), r = S.race;
+  const team = S.team.map(freshTeam).sort((a, b) => (b.week?.hours || 0) - (a.week?.hours || 0)), r = S.race;
   return `<header class="ph1"><div><div class="eyebrow">Grupo · ${team.length} de 4</div><h1>Quem larga junto</h1></div></header>
     ${countdownHTML()}
     ${S.isOwner ? `<details class="card" ${keepOpen("prova")}><summary class="sum">${ic("gear", 18)}<b>Editar a prova do grupo</b>${ic("chev", 18)}</summary>
@@ -2621,7 +2630,7 @@ function miniWeeks(t){
 }
 function competitionHTML(team, me){
   // cards de quem ainda não abriu esta versão vêm com histórico antigo: mostram zero até a pessoa abrir o app
-  team = team.map(t => t.since === RANK_START ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null });
+  team = team.map(freshTeam).map(t => t.since === RANK_START ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null });
   const b0 = BOARDS.find(b => b.k === (S.board || "points")) || BOARDS[0];
   const board = rankStarted() ? b0 : { ...b0, v: () => 0 }; // antes do início, ninguém pontua
   const ranked = team.slice().sort((a, b) => board.v(b) - board.v(a)), pod = ranked.slice(0, 3), per = S.period || "semana";
@@ -2826,6 +2835,14 @@ document.addEventListener("click", e => {
   const af = e.target.closest("[data-askfill]"); if (af){ S.coachTab = "conversa"; go("coach"); const t = $("#chatin"); if (t){ t.value = af.dataset.askfill; composerState(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } return; }
   const w = e.target.closest("[data-week]"); if (w){ S.week = +w.dataset.week; render(); return; }
   const q = e.target.closest("[data-ask]"); if (q){ sendChat(q.dataset.ask); return; }
+  // pergunta que o coach fez sobre uma refeição: entra no chat como fala do coach e o atleta responde
+  const qr = e.target.closest("[data-ask-reply]"); if (qr){
+    const [data, texto] = (qr.dataset.meal || "").split("|");
+    S.chat.push({ r:"a", t: `Sobre ${texto ? `o que você comeu (${texto}${texto.length >= 80 ? "…" : ""}${data ? `, ${new Date(data + "T12:00:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit" })}` : ""})` : "a sua refeição"}: ${qr.dataset.askReply}` });
+    save("chat", { messages: S.chat.slice(-40) });
+    S.coachTab = "conversa"; go("coach");
+    setTimeout(() => { const t = $("#chatin"); if (t){ t.placeholder = "Sua resposta ao coach…"; t.focus(); } scrollChat(); }, 0);
+    return; }
   const qg = e.target.closest("[data-ask-go]"); if (qg){ S.coachTab = "conversa"; go("coach"); sendChat(qg.dataset.askGo); return; }
   const sw = e.target.closest("[data-swap]"); if (sw){ const same = S.swap && S.swap.ref === sw.dataset.swap && S.swap.ei === +sw.dataset.ei; S.swap = same ? null : { ref: sw.dataset.swap, ei: +sw.dataset.ei }; render(); return; }
   const sp = e.target.closest("[data-swappick]"); if (sp){ applySwap(sp.dataset.swappick); return; }
