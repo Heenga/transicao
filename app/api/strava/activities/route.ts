@@ -38,6 +38,7 @@ async function handler(req: Request) {
     distance: a.distance, moving_time: a.moving_time, elapsed_time: a.elapsed_time,
     average_heartrate: a.average_heartrate ?? null, max_heartrate: a.max_heartrate ?? null,
     total_elevation_gain: a.total_elevation_gain, average_watts: a.average_watts ?? null,
+    weighted_average_watts: a.device_watts ? a.weighted_average_watts ?? null : null, workout_type: a.workout_type ?? null,
     average_cadence: a.average_cadence ?? null, suffer_score: a.suffer_score ?? null, trainer: !!a.trainer,
   }));
   return json({ activities: acts, has_more: acts.length === params.per_page });

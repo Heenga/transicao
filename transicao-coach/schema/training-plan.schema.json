@@ -1,0 +1,1331 @@
+{
+  "$ref": "#/definitions/TrainingPlan",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AthleteAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "currentForm": {
+          "additionalProperties": false,
+          "properties": {
+            "consistency": {
+              "type": "number"
+            },
+            "longestSessions": {
+              "additionalProperties": false,
+              "properties": {
+                "bike": {
+                  "type": "number"
+                },
+                "run": {
+                  "type": "number"
+                },
+                "swim": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "reasonForTimeOff": {
+              "type": "string"
+            },
+            "timeSincePeakFitness": {
+              "type": "string"
+            },
+            "weeklyVolume": {
+              "additionalProperties": false,
+              "properties": {
+                "bike": {
+                  "type": "number"
+                },
+                "run": {
+                  "type": "number"
+                },
+                "swim": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "total"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "weeklyVolume",
+            "longestSessions",
+            "consistency"
+          ],
+          "type": "object"
+        },
+        "foundation": {
+          "additionalProperties": false,
+          "properties": {
+            "foundationLevel": {
+              "enum": [
+                "beginner",
+                "intermediate",
+                "advanced",
+                "elite"
+              ],
+              "type": "string"
+            },
+            "peakTrainingLoad": {
+              "type": "number"
+            },
+            "raceHistory": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "yearsInSport": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "raceHistory",
+            "peakTrainingLoad",
+            "foundationLevel",
+            "yearsInSport"
+          ],
+          "type": "object"
+        },
+        "limiters": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "evidence": {
+                "type": "string"
+              },
+              "sport": {
+                "$ref": "#/definitions/Sport"
+              }
+            },
+            "required": [
+              "sport",
+              "evidence"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "strengths": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "evidence": {
+                "type": "string"
+              },
+              "sport": {
+                "$ref": "#/definitions/Sport"
+              }
+            },
+            "required": [
+              "sport",
+              "evidence"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "foundation",
+        "currentForm",
+        "strengths",
+        "limiters",
+        "constraints"
+      ],
+      "type": "object"
+    },
+    "AthleteZones": {
+      "additionalProperties": false,
+      "properties": {
+        "bike": {
+          "additionalProperties": false,
+          "properties": {
+            "hr": {
+              "$ref": "#/definitions/HeartRateZones"
+            },
+            "power": {
+              "$ref": "#/definitions/PowerZones"
+            }
+          },
+          "type": "object"
+        },
+        "maxHR": {
+          "type": "number"
+        },
+        "restingHR": {
+          "type": "number"
+        },
+        "run": {
+          "additionalProperties": false,
+          "properties": {
+            "hr": {
+              "$ref": "#/definitions/HeartRateZones"
+            },
+            "pace": {
+              "$ref": "#/definitions/PaceZones"
+            }
+          },
+          "type": "object"
+        },
+        "swim": {
+          "$ref": "#/definitions/SwimZones"
+        },
+        "weight": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "DurationTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "$ref": "#/definitions/DurationUnit"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "unit",
+        "value"
+      ],
+      "type": "object"
+    },
+    "DurationUnit": {
+      "enum": [
+        "seconds",
+        "minutes",
+        "hours",
+        "meters",
+        "kilometers",
+        "miles",
+        "yards",
+        "laps"
+      ],
+      "type": "string"
+    },
+    "FirstDayOfWeek": {
+      "enum": [
+        "monday",
+        "sunday"
+      ],
+      "type": "string"
+    },
+    "HeartRateZones": {
+      "additionalProperties": false,
+      "properties": {
+        "lthr": {
+          "type": "number"
+        },
+        "zones": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "hrHigh": {
+                "type": "number"
+              },
+              "hrLow": {
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "percentHigh": {
+                "type": "number"
+              },
+              "percentLow": {
+                "type": "number"
+              },
+              "zone": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "percentLow",
+              "percentHigh",
+              "hrLow",
+              "hrHigh"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "lthr",
+        "zones"
+      ],
+      "type": "object"
+    },
+    "IntensityTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "unit": {
+          "$ref": "#/definitions/IntensityUnit"
+        },
+        "value": {
+          "type": "number"
+        },
+        "valueHigh": {
+          "type": "number"
+        },
+        "valueLow": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "unit",
+        "value"
+      ],
+      "type": "object"
+    },
+    "IntensityUnit": {
+      "enum": [
+        "percent_ftp",
+        "percent_lthr",
+        "hr_zone",
+        "pace_zone",
+        "rpe",
+        "css_offset"
+      ],
+      "type": "string"
+    },
+    "IntervalSet": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "repeats": {
+          "type": "number"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/definitions/WorkoutStep"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "interval_set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "repeats",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "LandDistanceUnit": {
+      "enum": [
+        "kilometers",
+        "miles"
+      ],
+      "type": "string"
+    },
+    "PaceZones": {
+      "additionalProperties": false,
+      "properties": {
+        "thresholdPace": {
+          "type": "string"
+        },
+        "thresholdPaceSeconds": {
+          "type": "number"
+        },
+        "zones": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "pace": {
+                "type": "string"
+              },
+              "paceSeconds": {
+                "type": "number"
+              },
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "pace",
+              "paceSeconds"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "thresholdPace",
+        "thresholdPaceSeconds",
+        "zones"
+      ],
+      "type": "object"
+    },
+    "PowerZones": {
+      "additionalProperties": false,
+      "properties": {
+        "ftp": {
+          "type": "number"
+        },
+        "zones": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "percentHigh": {
+                "type": "number"
+              },
+              "percentLow": {
+                "type": "number"
+              },
+              "wattsHigh": {
+                "type": "number"
+              },
+              "wattsLow": {
+                "type": "number"
+              },
+              "zone": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "percentLow",
+              "percentHigh",
+              "wattsLow",
+              "wattsHigh"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ftp",
+        "zones"
+      ],
+      "type": "object"
+    },
+    "RaceStrategy": {
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "additionalProperties": false,
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "distances": {
+              "additionalProperties": false,
+              "properties": {
+                "bike": {
+                  "type": "number"
+                },
+                "run": {
+                  "type": "number"
+                },
+                "swim": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "date",
+            "type"
+          ],
+          "type": "object"
+        },
+        "nutrition": {
+          "additionalProperties": false,
+          "properties": {
+            "during": {
+              "additionalProperties": false,
+              "properties": {
+                "carbsPerHour": {
+                  "type": "number"
+                },
+                "fluidPerHour": {
+                  "type": "string"
+                },
+                "products": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "carbsPerHour",
+                "fluidPerHour",
+                "products"
+              ],
+              "type": "object"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "preRace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "preRace",
+            "during",
+            "notes"
+          ],
+          "type": "object"
+        },
+        "pacing": {
+          "additionalProperties": false,
+          "properties": {
+            "bike": {
+              "additionalProperties": false,
+              "properties": {
+                "notes": {
+                  "type": "string"
+                },
+                "targetHR": {
+                  "type": "string"
+                },
+                "targetPower": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "targetPower",
+                "targetHR",
+                "notes"
+              ],
+              "type": "object"
+            },
+            "run": {
+              "additionalProperties": false,
+              "properties": {
+                "notes": {
+                  "type": "string"
+                },
+                "targetHR": {
+                  "type": "string"
+                },
+                "targetPace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "targetPace",
+                "targetHR",
+                "notes"
+              ],
+              "type": "object"
+            },
+            "swim": {
+              "additionalProperties": false,
+              "properties": {
+                "notes": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "target",
+                "notes"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "raceDay": {
+          "additionalProperties": false,
+          "properties": {
+            "mentalCues": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "preRaceMeal": {
+              "type": "string"
+            },
+            "wakeUpTime": {
+              "type": "string"
+            },
+            "warmUp": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "taper": {
+          "additionalProperties": false,
+          "properties": {
+            "notes": {
+              "type": "string"
+            },
+            "startDate": {
+              "type": "string"
+            },
+            "volumeReduction": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "startDate",
+            "volumeReduction",
+            "notes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "event",
+        "pacing",
+        "nutrition",
+        "taper",
+        "raceDay"
+      ],
+      "type": "object"
+    },
+    "Sport": {
+      "description": "Training Plan JSON Schema\n\nDesigned to be comprehensive enough for export to:\n- Zwift (.zwo workouts)\n- Garmin Connect (.fit workouts)\n- TrainingPeaks\n- Other training platforms",
+      "enum": [
+        "swim",
+        "bike",
+        "run",
+        "strength",
+        "brick",
+        "race",
+        "rest"
+      ],
+      "type": "string"
+    },
+    "StepType": {
+      "enum": [
+        "warmup",
+        "work",
+        "recovery",
+        "rest",
+        "cooldown",
+        "interval_set"
+      ],
+      "type": "string"
+    },
+    "StructuredWorkout": {
+      "additionalProperties": false,
+      "properties": {
+        "cooldown": {
+          "items": {
+            "$ref": "#/definitions/WorkoutStep"
+          },
+          "type": "array"
+        },
+        "estimatedIF": {
+          "type": "number"
+        },
+        "estimatedTSS": {
+          "type": "number"
+        },
+        "main": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/WorkoutStep"
+              },
+              {
+                "$ref": "#/definitions/IntervalSet"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "totalDuration": {
+          "$ref": "#/definitions/DurationTarget"
+        },
+        "warmup": {
+          "items": {
+            "$ref": "#/definitions/WorkoutStep"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "main"
+      ],
+      "type": "object"
+    },
+    "SwimDistanceUnit": {
+      "enum": [
+        "meters",
+        "yards"
+      ],
+      "type": "string"
+    },
+    "SwimZones": {
+      "additionalProperties": false,
+      "properties": {
+        "css": {
+          "type": "string"
+        },
+        "cssSeconds": {
+          "type": "number"
+        },
+        "zones": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "pace": {
+                "type": "string"
+              },
+              "paceOffset": {
+                "type": "number"
+              },
+              "zone": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "paceOffset",
+              "pace"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "css",
+        "cssSeconds",
+        "zones"
+      ],
+      "type": "object"
+    },
+    "TrainingDay": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "dayOfWeek": {
+          "type": "string"
+        },
+        "workouts": {
+          "items": {
+            "$ref": "#/definitions/Workout"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "date",
+        "dayOfWeek",
+        "workouts"
+      ],
+      "type": "object"
+    },
+    "TrainingPhase": {
+      "additionalProperties": false,
+      "properties": {
+        "endWeek": {
+          "type": "number"
+        },
+        "focus": {
+          "type": "string"
+        },
+        "keyWorkouts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "physiologicalGoals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "startWeek": {
+          "type": "number"
+        },
+        "weeklyHoursRange": {
+          "additionalProperties": false,
+          "properties": {
+            "high": {
+              "type": "number"
+            },
+            "low": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "startWeek",
+        "endWeek",
+        "focus",
+        "weeklyHoursRange",
+        "keyWorkouts",
+        "physiologicalGoals"
+      ],
+      "type": "object"
+    },
+    "TrainingPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "assessment": {
+          "$ref": "#/definitions/AthleteAssessment"
+        },
+        "changeLog": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meta": {
+          "additionalProperties": false,
+          "properties": {
+            "athlete": {
+              "type": "string"
+            },
+            "athleteId": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string"
+            },
+            "eventDate": {
+              "type": "string"
+            },
+            "generatedBy": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "planEndDate": {
+              "type": "string"
+            },
+            "planStartDate": {
+              "type": "string"
+            },
+            "totalWeeks": {
+              "type": "number"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "athlete",
+            "event",
+            "eventDate",
+            "planStartDate",
+            "planEndDate",
+            "createdAt",
+            "updatedAt",
+            "totalWeeks",
+            "generatedBy"
+          ],
+          "type": "object"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/definitions/TrainingPhase"
+          },
+          "type": "array"
+        },
+        "preferences": {
+          "$ref": "#/definitions/UnitPreferences"
+        },
+        "raceStrategy": {
+          "$ref": "#/definitions/RaceStrategy"
+        },
+        "version": {
+          "const": "1.0",
+          "type": "string"
+        },
+        "weeks": {
+          "items": {
+            "$ref": "#/definitions/TrainingWeek"
+          },
+          "type": "array"
+        },
+        "zones": {
+          "$ref": "#/definitions/AthleteZones"
+        }
+      },
+      "required": [
+        "version",
+        "meta",
+        "preferences",
+        "assessment",
+        "zones",
+        "phases",
+        "weeks",
+        "raceStrategy"
+      ],
+      "type": "object"
+    },
+    "TrainingWeek": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "items": {
+            "$ref": "#/definitions/TrainingDay"
+          },
+          "type": "array"
+        },
+        "endDate": {
+          "type": "string"
+        },
+        "focus": {
+          "type": "string"
+        },
+        "isRecoveryWeek": {
+          "type": "boolean"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "startDate": {
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/definitions/WeekSummary"
+        },
+        "targetHours": {
+          "type": "number"
+        },
+        "weekNumber": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "weekNumber",
+        "startDate",
+        "endDate",
+        "phase",
+        "focus",
+        "targetHours",
+        "days",
+        "summary",
+        "isRecoveryWeek"
+      ],
+      "type": "object"
+    },
+    "UnitPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "bike": {
+          "$ref": "#/definitions/LandDistanceUnit"
+        },
+        "firstDayOfWeek": {
+          "$ref": "#/definitions/FirstDayOfWeek"
+        },
+        "run": {
+          "$ref": "#/definitions/LandDistanceUnit"
+        },
+        "swim": {
+          "$ref": "#/definitions/SwimDistanceUnit"
+        }
+      },
+      "required": [
+        "swim",
+        "bike",
+        "run",
+        "firstDayOfWeek"
+      ],
+      "type": "object"
+    },
+    "WeekSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "bySport": {
+          "additionalProperties": false,
+          "properties": {
+            "bike": {
+              "additionalProperties": false,
+              "properties": {
+                "hours": {
+                  "type": "number"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "sessions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sessions",
+                "hours"
+              ],
+              "type": "object"
+            },
+            "brick": {
+              "additionalProperties": false,
+              "properties": {
+                "hours": {
+                  "type": "number"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "sessions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sessions",
+                "hours"
+              ],
+              "type": "object"
+            },
+            "race": {
+              "additionalProperties": false,
+              "properties": {
+                "hours": {
+                  "type": "number"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "sessions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sessions",
+                "hours"
+              ],
+              "type": "object"
+            },
+            "rest": {
+              "additionalProperties": false,
+              "properties": {
+                "hours": {
+                  "type": "number"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "sessions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sessions",
+                "hours"
+              ],
+              "type": "object"
+            },
+            "run": {
+              "additionalProperties": false,
+              "properties": {
+                "hours": {
+                  "type": "number"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "sessions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sessions",
+                "hours"
+              ],
+              "type": "object"
+            },
+            "strength": {
+              "additionalProperties": false,
+              "properties": {
+                "hours": {
+                  "type": "number"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "sessions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sessions",
+                "hours"
+              ],
+              "type": "object"
+            },
+            "swim": {
+              "additionalProperties": false,
+              "properties": {
+                "hours": {
+                  "type": "number"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "sessions": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sessions",
+                "hours"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "totalHours": {
+          "type": "number"
+        },
+        "totalTSS": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "totalHours",
+        "bySport"
+      ],
+      "type": "object"
+    },
+    "Workout": {
+      "additionalProperties": false,
+      "properties": {
+        "actualDistance": {
+          "type": "number"
+        },
+        "actualDuration": {
+          "type": "number"
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "completedAt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "distanceMeters": {
+          "type": "number"
+        },
+        "durationMinutes": {
+          "type": "number"
+        },
+        "groupSession": {
+          "type": "boolean"
+        },
+        "groupSessionId": {
+          "type": "string"
+        },
+        "humanReadable": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "primaryZone": {
+          "type": "string"
+        },
+        "rpe": {
+          "type": "number"
+        },
+        "sport": {
+          "$ref": "#/definitions/Sport"
+        },
+        "structure": {
+          "$ref": "#/definitions/StructuredWorkout"
+        },
+        "targetHR": {
+          "additionalProperties": false,
+          "properties": {
+            "high": {
+              "type": "number"
+            },
+            "low": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "type": "object"
+        },
+        "targetPace": {
+          "additionalProperties": false,
+          "properties": {
+            "high": {
+              "type": "string"
+            },
+            "low": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "type": "object"
+        },
+        "targetPower": {
+          "additionalProperties": false,
+          "properties": {
+            "high": {
+              "type": "number"
+            },
+            "low": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "type": "object"
+        },
+        "type": {
+          "$ref": "#/definitions/WorkoutType"
+        }
+      },
+      "required": [
+        "id",
+        "sport",
+        "type",
+        "name",
+        "description",
+        "completed"
+      ],
+      "type": "object"
+    },
+    "WorkoutStep": {
+      "additionalProperties": false,
+      "properties": {
+        "cadence": {
+          "additionalProperties": false,
+          "properties": {
+            "high": {
+              "type": "number"
+            },
+            "low": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "type": "object"
+        },
+        "duration": {
+          "$ref": "#/definitions/DurationTarget"
+        },
+        "intensity": {
+          "$ref": "#/definitions/IntensityTarget"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/definitions/StepType"
+        }
+      },
+      "required": [
+        "type",
+        "duration",
+        "intensity"
+      ],
+      "type": "object"
+    },
+    "WorkoutType": {
+      "enum": [
+        "rest",
+        "recovery",
+        "endurance",
+        "tempo",
+        "threshold",
+        "intervals",
+        "vo2max",
+        "sprint",
+        "race",
+        "brick",
+        "technique",
+        "openwater",
+        "hills",
+        "long"
+      ],
+      "type": "string"
+    }
+  }
+}

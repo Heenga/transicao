@@ -91,6 +91,8 @@ lib/                        utilitários do servidor (Supabase admin, Strava)
 public/index.html           app (tela de login + painel)
 public/shim.js              login, banco, IA e downloads no navegador
 public/app.js · app.css     interface e lógica de treino
+public/motor.js             motor de treino (carga, fases, metas, prontidão, validação) — base: transicao-coach/
+tests/                      testes do motor (npm test)
 supabase/schema.sql         tabelas e regras de segurança
 ```
 

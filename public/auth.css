@@ -1,10 +1,9 @@
-.authscreen{min-height:calc(100vh - 80px);display:grid;place-items:center;padding-block:32px}
-.authcard{width:100%;max-width:420px;display:flex;flex-direction:column;gap:14px;align-items:flex-start;padding:28px}
-.authcard h1{font-size:34px}
+.authscreen{min-height:calc(100dvh - var(--toph));display:grid;place-items:center;padding:24px 16px calc(32px + env(safe-area-inset-bottom,0px))}
+.authcard{width:100%;max-width:420px;display:flex;flex-direction:column;gap:14px;align-items:flex-start;padding:28px 20px;border-radius:26px;background:var(--surface);box-shadow:var(--shadow);border:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+.authcard .logo-mark{color:var(--ink);margin-bottom:4px}
+.authcard h1{font-size:36px;font-stretch:118%}
 .authcard form{width:100%}
-.authcard .btn[type=submit]{width:100%;justify-content:center;padding:13px}
-.authseg{display:grid;grid-template-columns:1fr 1fr;width:100%;margin-top:4px;padding:4px;gap:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
-.authseg button{font:600 14px/1 var(--body);min-height:44px;padding:0 12px;border:0;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.authseg button:hover{color:var(--ink)}
-.authseg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
-.authseg button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.authseg{display:grid;grid-template-columns:1fr 1fr;width:100%;padding:4px;gap:4px;border-radius:14px;background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.authseg button{font:600 14px/1 var(--body);min-height:42px;padding:0 12px;border:0;border-radius:10px;background:transparent;color:var(--muted);cursor:pointer}
+.authseg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(14,23,48,.12)}
+body[data-view="loading"] .bottomnav{display:none}
