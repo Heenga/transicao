@@ -48,11 +48,13 @@ function normalize(a){
   let dist = Number(a.distance ?? a.distance_m ?? 0);
   if (!dist && a.distance_km) dist = Number(a.distance_km) * 1000;
   const moving = toSec(a.moving_time ?? a.moving_s ?? a.elapsed_time ?? a.duration ?? 0);
-  const date = a.start_date_local ?? a.start_date ?? a.date ?? a.startDate;
+  // Strava: start_date é o instante real; start_date_local é o horário local com um "Z" enganoso (lido como UTC, o treino ficava 3 h antes)
+  const fromStrava = !!(a.start_date || a.start_date_local);
+  const date = a.start_date ?? (a.start_date_local ? String(a.start_date_local).replace(/Z$/, "") : null) ?? a.date ?? a.startDate;
   if (!date || isNaN(new Date(date))) return null;
   return {
     id: String(a.id ?? a.activity_id ?? (date + sport + Math.round(dist))),
-    date: new Date(String(date)).toISOString(),
+    date: new Date(String(date)).toISOString(), ...(fromStrava ? { tz: 1 } : {}),
     sport, name: String(a.name ?? SPORTS[sport]).slice(0, 80),
     dist: Math.round(dist), mov: Math.round(moving),
     hr: a.average_heartrate ?? a.hr_avg ?? a.avg_hr ?? null,
@@ -358,18 +360,9 @@ async function offerDownload(filename, obj){
   catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") flash("dados", "Não consegui gerar o arquivo. Tente de novo.", true); }
 }
 /* ---------- competição: resumo público de cada participante (sem dados de saúde) ---------- */
-function streakDays(){
-  const days = new Set(S.activities.map(a => dayKey(a.date))); let n = 0, d = new Date();
-  if (!days.has(dayKey(d))) d = addDays(d, -1);
-  while (days.has(dayKey(d))){ n++; d = addDays(d, -1); }
-  return n;
-}
-function streakWeeks(){
-  const w = weeklyBuckets(26); let n = 0;
-  for (let i = w.length - 2; i >= 0; i--){ const c = w[i].swim.c + w[i].bike.c + w[i].run.c + w[i].other.c; if (c >= 4) n++; else break; }
-  const cur = w[w.length-1]; if (cur.swim.c + cur.bike.c + cur.run.c + cur.other.c >= 4) n++;
-  return n;
-}
+/* Sequências pelas mesmas regras da pontuação (public/pontos.js): só treinos válidos (10+ min, sem "outros" nem duplicatas). */
+const streakDays = () => Pontos.streaks(Pontos.daily(S.activities), dayKey(new Date())).streakDays;
+const streakWeeks = () => Pontos.streaks(Pontos.daily(S.activities), dayKey(new Date())).streakWeeks;
 /* reconhecimentos: só aparecem quando os dados comprovam a evolução */
 function highlights(){
   const out = [], now = Date.now(), d7 = addDays(new Date(), -7), d90 = addDays(new Date(), -97);
@@ -415,18 +408,14 @@ function periodStart(k){
   return st < min ? min : st;
 }
 function periodStats(){
+  // pontos, horas, treinos e distâncias: regras de public/pontos.js (por dia, somados no período)
   const enough = dataQuality().enough, fit = enough ? fitnessSeries(240) : null, out = {};
+  const ps = Pontos.periods(Pontos.daily(S.activities, RANK_START), dayKey(new Date()), RANK_START);
   for (const k of Object.keys(PERIODS)){
-    const st = periodStart(k), xs = S.activities.filter(a => new Date(a.date) >= st && a.sport !== "other");
-    const by = sp => xs.filter(a => a.sport === sp);
-    const hours = xs.reduce((s,a)=>s+a.mov,0)/3600, days = Math.max(1, Math.ceil((Date.now() - st)/864e5));
-    const sports = ["swim","bike","run"].filter(sp => by(sp).length).length;
-    const points = Math.round(hours*10 + Math.min(xs.length, days*2)*5 + (sports === 3 ? 20 : 0));
+    const st = periodStart(k);
     let formaIni = null;
     if (fit){ const i = fit.findIndex(p => p.d >= st); formaIni = i > 0 ? +score(fit[i-1].ctl).toFixed(1) : i === 0 ? +score(fit[0].ctl).toFixed(1) : null; }
-    out[k] = { points, hours: +hours.toFixed(1), sessions: xs.length, swim_m: Math.round(by("swim").reduce((s,a)=>s+a.dist,0)),
-      bike_km: +(by("bike").reduce((s,a)=>s+a.dist,0)/1000).toFixed(1), run_km: +(by("run").reduce((s,a)=>s+a.dist,0)/1000).toFixed(1),
-      forma: fit ? +score(fit.at(-1).ctl).toFixed(1) : null, forma_ini: formaIni };
+    out[k] = { ...ps[k], forma: fit ? +score(fit.at(-1).ctl).toFixed(1) : null, forma_ini: formaIni };
   }
   return out;
 }
@@ -451,8 +440,9 @@ function saveTeamDoc(recentActs){
     forma: fit?.length ? +score(fit.at(-1).ctl).toFixed(1) : 0, forma4: null, since: RANK_START,
     streakDays: streakDays(), streakWeeks: streakWeeks(), adherence: adh, badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
     recent: recentActs.map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
-    periods: periodStats(), updatedAt: new Date().toISOString() };
+    periods: periodStats(), days: Pontos.daily(S.activities, RANK_START), rules: 2, updatedAt: new Date().toISOString() };
   doc.points = doc.periods.semana.points;
+  { const w = doc.periods.semana; doc.week = { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions }; }
   S.db.collection("team").doc(S.uid).set(doc).catch(e => console.warn("team", e));
 }
 
@@ -2600,6 +2590,8 @@ function weightCardHTML(){
 /** O resumo de cada atleta é gravado quando ELE abre o app. Se foi gravado antes do início de um período
     (ontem, semana passada, mês passado), os números daquele período ficam zerados até ele abrir o app de novo. */
 function freshTeam(t){
+  // resumo novo (com os dias): recalcula todos os períodos para HOJE pelas regras de public/pontos.js
+  const v = window.Pontos && Pontos.view(t, dayKey(new Date()), RANK_START); if (v) return v;
   const at = t.updatedAt ? new Date(t.updatedAt) : null; if (!at) return t;
   const zero = { points: 0, hours: 0, sessions: 0, swim_m: 0, bike_km: 0, run_km: 0 };
   const periods = t.periods ? Object.fromEntries(Object.entries(t.periods).map(([k, v]) => [k, k !== "periodo" && at < periodStart(k) ? { ...v, ...zero } : v])) : t.periods;
@@ -2645,13 +2637,14 @@ function competitionHTML(team, me){
     <div class="hscroll chips-x">${BOARDS.map(b => `<button type="button" class="chip" data-board="${b.k}" aria-pressed="${b.k === board.k}">${b.t}</button>`).join("")}</div>
     <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${esc(t.nick)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
     ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${esc(t.nick)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
-    <p class="note">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde ${periodStart(per).toLocaleDateString("pt-BR")}.` : `${PERIODS[per]}: desde ${periodStart(per).toLocaleDateString("pt-BR")}.`}${board.k === "points" ? " Pontos = 10 por hora + 5 por treino (até 2 por dia) + 20 se fez as 3 modalidades. Premia constância." : ""}</p>
+    <p class="note">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde ${periodStart(per).toLocaleDateString("pt-BR")}.` : `${PERIODS[per]}: desde ${periodStart(per).toLocaleDateString("pt-BR")}.`}${board.k === "points" ? ` Pontos = 10 por hora (até ${Pontos.RULES.maxHorasPorTreino} h por treino) + 5 por treino de ${Pontos.RULES.minMinutos} min ou mais (até 2 por dia) + 20 na semana em que fizer natação, bike e corrida. Caminhada e "outros" não contam; treino repetido (manual + relógio) conta uma vez.` : ""}</p>
+    <p class="note">Os treinos de cada um entram no placar quando a pessoa abre o app (o Strava sincroniza sozinho).</p>
     ${team.some(t => !t.periods) ? `<p class="note">Quem ainda não abriu o app nesta versão aparece com zero até entrar de novo.</p>` : ""}
   </section>
   <div class="sect-h"><h2>Atletas</h2></div>
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4) / t.forma4 * 100).toFixed(1) : null;
     return `<article class="card mate${t.__id === me ? " me" : ""}">
-      <div class="mate-h"><span class="avatar">${esc(initialOf(t.nick))}</span><div><b>${esc(t.nick)}${you(t)}</b><span class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : ""].filter(Boolean).join(" · ") || "Nenhum treino contado ainda"}</span></div><span class="mate-pts"><b>${rankStarted() ? t.points ?? 0 : 0}</b><span>pts</span></span></div>
+      <div class="mate-h"><span class="avatar">${esc(initialOf(t.nick))}</span><div><b>${esc(t.nick)}${you(t)}</b><span class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : "", t.updatedAt ? `atualizado ${agoText(t.updatedAt)}` : ""].filter(Boolean).join(" · ") || "Nenhum treino contado ainda"}</span></div><span class="mate-pts"><b>${rankStarted() ? t.points ?? 0 : 0}</b><span>pts</span></span></div>
       <div class="stats3"><div><span>Condição</span><b>${t.forma != null ? fmtNum(t.forma, 1) : "—"}${ev != null ? ` <small class="delta ${ev >= 0 ? "good" : "bad"}">${ev >= 0 ? "▲" : "▼"}${Math.abs(ev)}%</small>` : ""}</b></div><div><span>Horas</span><b>${fmtNum(w.hours || 0, 1)}</b></div><div><span>Treinos</span><b>${w.sessions ?? 0}</b></div></div>
       ${miniWeeks(t)}
       <div class="mate-dist"><span class="c-swim">${ic("swim", 15)}${fmtNum(w.swim_m || 0, 0)} m</span><span class="c-bike">${ic("bike", 15)}${fmtNum(w.bike_km || 0, 1)} km</span><span class="c-run">${ic("run", 15)}${fmtNum(w.run_km || 0, 1)} km</span></div>
@@ -3012,11 +3005,23 @@ document.addEventListener("change", async e => {
 
 /* ---------- boot ---------- */
 /* recarrega do banco tudo o que está salvo (perfil, treinos, plano, check-ins, peso, alimentação, conversa, grupo e prova) */
+/** Uma vez: treinos do Strava salvos antes da correção de fuso ficaram 3 h adiantados (horário local lido como UTC).
+    Devolve o horário real, para o treino cair no dia e na semana certos (placar, plano, duplicatas). */
+function fixStravaTimes(){
+  let n = 0;
+  for (const a of S.activities){
+    if (a.tz || !(a.src === "strava" || (!a.src && /^\d+$/.test(String(a.id))))) continue;
+    const w = new Date(a.date); if (isNaN(w)) continue;
+    a.date = new Date(w.getTime() + w.getTimezoneOffset() * 60e3).toISOString(); a.tz = 1; n++;
+  }
+  if (n) persistActivities();
+  return n;
+}
 async function loadMine(){
   const base = S.db.collection("data/users/" + S.uid);
   const [p, a, pl, c, ck, dt, wt] = await Promise.all(["profile","activities","plan","chat","checkins","diet","weights"].map(n => base.doc(n).get().catch(() => null)));
   S.profile = p?.exists ? p.data() : S.profile; if (p?.exists) S.profileSaved = true;
-  if (a?.exists){ const d = a.data(); S.activities = d.list || []; S.zones = d.zones || null; S.lastSync = d.syncedAt || null; S.sources = d.sources || null; }
+  if (a?.exists){ const d = a.data(); S.activities = d.list || []; S.zones = d.zones || null; S.lastSync = d.syncedAt || null; S.sources = d.sources || null; fixStravaTimes(); }
   if (pl?.exists) S.plan = pl.data();
   if (c?.exists) S.chat = c.data().messages || [];
   if (ck?.exists) S.checkins = ck.data().list || [];
@@ -3042,7 +3047,7 @@ async function reloadAll(){
 }
 async function boot(){
   // página antiga em cache sem o <script> do motor: carrega antes de começar
-  if (!window.Motor) await new Promise(ok => { const s = document.createElement("script"); s.src = "/motor.js"; s.onload = s.onerror = ok; document.head.appendChild(s); });
+  for (const [g, f] of [["Motor", "/motor.js"], ["Pontos", "/pontos.js"]]) if (!window[g]) await new Promise(ok => { const s = document.createElement("script"); s.src = f; s.onload = s.onerror = ok; document.head.appendChild(s); });
   render();
   const [db, user] = await Promise.all([cap("db"), cap("user")]);
   const uid = user ? await user.id().catch(() => null) : null;

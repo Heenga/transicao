@@ -34,7 +34,7 @@ async function handler(req: Request) {
   if (r.status === 429) return fail("rate_limited", "Limite do Strava atingido. Tente em 15 minutos.", 429);
   if (!r.data) return fail("upstream_error", "O Strava não respondeu.", 502);
   const acts = (r.data as any[]).map(a => ({
-    id: String(a.id), name: a.name, sport_type: a.sport_type || a.type, start_date_local: a.start_date_local,
+    id: String(a.id), name: a.name, sport_type: a.sport_type || a.type, start_date: a.start_date, start_date_local: a.start_date_local,
     distance: a.distance, moving_time: a.moving_time, elapsed_time: a.elapsed_time,
     average_heartrate: a.average_heartrate ?? null, max_heartrate: a.max_heartrate ?? null,
     total_elevation_gain: a.total_elevation_gain, average_watts: a.average_watts ?? null,
