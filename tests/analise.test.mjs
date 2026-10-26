@@ -72,3 +72,34 @@ test("recuperação e insights priorizados", () => {
   for (const t of ["Insights de melhora", "Até a prova", "Tempo estimado de prova", "Distância da prova", "Risco de lesão", "Recuperação"]) assert.ok(html.includes(t), t);
   assert.ok(A.summaryHTML(r, 'data-go="coach"').includes("Ver análise completa"));
 });
+
+test("treino: leve feito forte, esforço acima da FC e comparação com parecidos", () => {
+  const thr = { runLthr: 170 }, k = TODAY;
+  const sim = []; for (let i = 1; i <= 6; i++) sim.push(act(add(k, -i * 5), "run", 8000, 8 * 390, 145));
+  const a = act(k, "run", 8000, 8 * 380, 160, { rpe: 8 });
+  const r = A.workout(a, { acts: [...sim, a], thr, sess: { sport: "run", titulo: "Corrida leve", min: 50, zona: "Z2" }, checkins: [{ data: k, sono: 5.5 }] });
+  assert.equal(r.z.esforco, 4); assert.equal(r.z.medida, 4); assert.equal(r.z.fonte, "FC de limiar");
+  assert.ok(r.pontos.some(p => p.titulo === "Treino leve feito forte"));
+  assert.equal(r.cmp.n, 6); assert.equal(r.cmp.rank, 1);
+  assert.ok(r.cmp.efPct < 0, "mais rápido mas com FC bem mais alta = menos eficiente");
+  assert.equal(r.sono, 5.5);
+  const html = A.workoutHTML(a, r);
+  assert.match(html, /Planejado × feito/); assert.match(html, /Comparado a treinos parecidos/);
+});
+
+test("treino: sem histórico não quebra e não compara", () => {
+  const a = act(TODAY, "swim", 1500, 1800, null, { rpe: 5 });
+  const r = A.workout(a, { acts: [a], thr: {} });
+  assert.equal(r.cmp, null); assert.equal(r.plan, null); assert.equal(r.z.zona, 3);
+  assert.ok(typeof A.workoutHTML(a, r) === "string");
+});
+
+test("semana × normal: detecta corrida subindo rápido", () => {
+  const acts = [];
+  for (let w = 1; w <= 4; w++) for (const d of [1, 3]) acts.push(act(add(TODAY, -7 * w - d), "run", 5000, 1800, 145));
+  for (const d of [0, 1, 2, 4]) acts.push(act(add(TODAY, -d), "run", 6000, 2100, 150));
+  const w = A.weekCompare(acts, {}, TODAY);
+  const run = w.rows.find(r => r.sport === "run");
+  assert.equal(w.weeks, 4); assert.equal(run.dist, 24000); assert.equal(run.distAntes, 10000);
+  assert.ok(w.texto.some(t => /Corrida subiu/.test(t)));
+});

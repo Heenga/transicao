@@ -408,39 +408,42 @@ function periodStart(k){
   return st < min ? min : st;
 }
 function periodStats(){
-  // pontos, horas, treinos e distâncias: regras de public/pontos.js (por dia, somados no período)
-  const enough = dataQuality().enough, fit = enough ? fitnessSeries(240) : null, out = {};
-  const ps = Pontos.periods(Pontos.daily(S.activities, RANK_START), dayKey(new Date()), RANK_START);
-  for (const k of Object.keys(PERIODS)){
-    const st = periodStart(k);
-    let formaIni = null;
-    if (fit){ const i = fit.findIndex(p => p.d >= st); formaIni = i > 0 ? +score(fit[i-1].ctl).toFixed(1) : i === 0 ? +score(fit[0].ctl).toFixed(1) : null; }
-    out[k] = { ...ps[k], forma: fit ? +score(fit.at(-1).ctl).toFixed(1) : null, forma_ini: formaIni };
-  }
-  return out;
+  // pontos, horas, treinos e distâncias: regras de public/pontos.js (por dia, somados no período); condicionamento vem de formaSerie
+  return Pontos.periods(Pontos.daily(S.activities, RANK_START), dayKey(new Date()), RANK_START);
+}
+/** Condicionamento (0–100) dia a dia, com o histórico inteiro, de 60 dias atrás (ou da véspera do ranking) até hoje.
+   Vai no resumo do Grupo para o placar calcular "Evolução" a partir do início de qualquer período, no dia em que for visto. */
+function formaSerie(){
+  if (!dataQuality().enough) return null;
+  const all = fitnessAll(); if (!all.length) return null;
+  const today = dayKey(new Date()), ini = [dayKey(addDays(new Date(), -60)), Pontos.util.addK(RANK_START, -1)].sort()[0];
+  const by = new Map(all.map(p => [dayKey(p.d), p.ctl])), first = dayKey(all[0].d), v = [];
+  let ctl = 0;
+  for (let k = ini; k <= today; k = Pontos.util.addK(k, 1)){ ctl = k < first ? 0 : by.has(k) ? by.get(k) : ctl * 41 / 42; v.push(+score(ctl).toFixed(1)); }
+  return { ini, v };
 }
 function saveTeam(){
   if (!S.db || !S.uid || !S.profile) return;
   // Tudo o que vai para o Grupo é calculado só com treinos a partir de RANK_START (o histórico pessoal não entra na competição)
-  const all = S.activities, recent = all.slice(0, 6);
+  // exceção: condicionamento é estado de forma, então usa o histórico inteiro (senão começa do zero em RANK_START)
+  const all = S.activities, recent = all.slice(0, 6), serie = formaSerie();
   S.activities = all.filter(a => dayKey(a.date) >= RANK_START);
-  try { saveTeamDoc(recent); } finally { S.activities = all; }
+  try { saveTeamDoc(recent, serie); } finally { S.activities = all; }
 }
-function saveTeamDoc(recentActs){
+function saveTeamDoc(recentActs, serie){
   const w = weeklyBuckets(1)[0], w12 = weeklyBuckets(12), monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const month = sp => S.activities.filter(a => a.sport === sp && new Date(a.date) >= monthStart).reduce((s,a)=>s+a.dist,0);
   const hours = (w.swim.t + w.bike.t + w.run.t + w.other.t)/3600, sessions = w.swim.c + w.bike.c + w.run.c + w.other.c;
   const adh = adherence();
-  const fit = S.activities.length ? fitnessSeries(42) : null;
   const doc = { nick: S.profile.nick || "Atleta",
     week: { swim_m: Math.round(w.swim.d), bike_km: +(w.bike.d/1000).toFixed(1), run_km: +(w.run.d/1000).toFixed(1), hours: +hours.toFixed(1), sessions },
     month: { swim_m: Math.round(month("swim")), bike_km: +(month("bike")/1000).toFixed(1), run_km: +(month("run")/1000).toFixed(1) },
     weeks12: w12.map(x => ({ s: Math.round(x.swim.t/60), b: Math.round(x.bike.t/60), r: Math.round(x.run.t/60), o: Math.round(x.other.t/60) })),
     points: 0, // preenchido abaixo com os pontos da semana contados a partir de RANK_START
-    forma: fit?.length ? +score(fit.at(-1).ctl).toFixed(1) : 0, forma4: null, since: RANK_START,
+    forma: serie ? serie.v.at(-1) : 0, formaSerie: serie, forma4: null, since: RANK_START,
     streakDays: streakDays(), streakWeeks: streakWeeks(), adherence: adh, badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
     recent: recentActs.map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
-    periods: periodStats(), days: Pontos.daily(S.activities, RANK_START), rules: 2, updatedAt: new Date().toISOString() };
+    periods: periodStats(), days: Pontos.daily(S.activities, RANK_START), rules: 3, updatedAt: new Date().toISOString() };
   doc.points = doc.periods.semana.points;
   { const w = doc.periods.semana; doc.week = { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions }; }
   S.db.collection("team").doc(S.uid).set(doc).catch(e => console.warn("team", e));
@@ -1193,7 +1196,8 @@ function doneBlockHTML(ref, date){
         <div class="note" style="margin-bottom:6px">Complementar (o coach usa isso no próximo ajuste)</div>
         ${rpeChips("an_rpe", a.rpe || null)}
         <textarea id="an_obs" rows="2" placeholder="Como foi? Dor, cansaço, o que mudou, dados que o relógio não pegou…" style="margin-top:8px">${esc(a.obs || "")}</textarea>
-        <button class="btn sm" type="submit" style="margin-top:8px">Salvar complemento</button></form>`
+        <button class="btn sm" type="submit" style="margin-top:8px">Salvar complemento</button></form>
+      <button type="button" class="btn ghost sm" data-actopen="${esc(a.id)}" style="margin-top:8px">${ic("chart", 15)} Ver análise do treino</button>`
       : `<div class="eyebrow">Ainda não ligado a um treino feito</div>`}
     ${acts.length > (a ? 1 : 0) ? `<div class="note" style="margin-top:12px">${a ? "Não foi esse? Escolha o treino certo do dia:" : "Algum destes foi este treino?"}</div>
       <div class="chips" style="margin:6px 0 0">${acts.filter(x => x.id !== id).map(x => `<button type="button" class="chip" data-link="${esc(x.id)}" data-ref="${ref}">${esc(lbl(x))}</button>`).join("")}${a ? `<button type="button" class="chip" data-link="" data-ref="${ref}">Nenhum: não fiz este</button>` : ""}</div>` : ""}
@@ -2050,15 +2054,27 @@ function actSheetHTML(id){
   const pace = a.sport === "run" ? paceRun(a.dist, a.mov) : a.sport === "swim" ? paceSwim(a.dist, a.mov) : a.sport === "bike" ? speedBike(a.dist, a.mov) : null;
   const kcal = Math.round(a.kcal || (MET[a.sport] ?? 4) * (Number(S.profile?.peso) || 75) * a.mov / 3600);
   const src = ({ strava:"Strava", garmin:"Garmin", apple:"Apple Watch", manual:"Registro manual" })[a.src] || "";
-  return `<div class="sh-hero c-${a.sport}">${sportIc(a.sport, 26)}<div><div class="eyebrow">${SPORTS[a.sport]}${src ? " · " + src : ""}</div><h2>${esc(a.name)}</h2><div class="note">${wday(a.date, { weekday:"long", day:"numeric", month:"long" })} · ${hhmm(a.date)}</div></div></div>
+  const hero = `<div class="sh-hero c-${a.sport}">${sportIc(a.sport, 26)}<div><div class="eyebrow">${SPORTS[a.sport]}${src ? " · " + src : ""}</div><h2>${esc(a.name)}</h2><div class="note">${wday(a.date, { weekday:"long", day:"numeric", month:"long" })} · ${hhmm(a.date)}</div></div></div>`;
+  // 1º passo: sem esforço avaliado, a folha só pede a nota; o resto (registro e análise) vem depois
+  if (!a.rpe && a.sport !== "other") return `${hero}
+    <div class="rpegate"><div class="eyebrow">Passo 1 de 2</div><h3>Como foi o esforço?</h3>
+      <p class="note">${[a.dist ? fmtDist(a.sport, a.dist) : "", fmtDur(a.mov), pace && pace !== "—" && a.dist ? pace : "", a.hr ? `FC ${Math.round(a.hr)}` : ""].filter(Boolean).join(" · ")}. Dê a nota de 1 a 10 do treino como um todo: ela entra na carga e destrava a análise.</p>
+      <div class="rpegrid" role="group" aria-label="Esforço percebido de 1 a 10">${Array.from({ length: 10 }, (_, i) => i + 1).map(n => `<button type="button" data-rpeset="${n}" data-id="${esc(a.id)}" style="--c:${n <= 3 ? "var(--ok)" : n <= 6 ? "var(--warn)" : "var(--bad)"}"><b>${n}</b><span>${RPE[n]}</span></button>`).join("")}</div>
+      <p class="note">1–2 solto · 3–4 dá para conversar · 5–6 frases curtas · 7–8 forte, quase sem falar · 9–10 no limite.</p></div>`;
+  const tsbBefore = (() => { const k = dayKey(addDays(new Date(a.date), -1)), p = dataQuality().enough ? fitnessAll().find(x => dayKey(x.d) === k) : null; return p ? p.tsb : null; })();
+  let an = "";
+  if (window.Analise && a.sport !== "other") try { an = Analise.workoutHTML(a, Analise.workout(a, { acts: S.activities, thr: thresholds(), sess, tsbBefore, checkins: S.checkins || [] }), { scrubHTML }); } catch (e) { console.warn("analise treino", e); }
+  return `${hero}
     <div class="planlink${sess ? "" : " off"}">${sess ? `${ic("check", 16)}<span>Cumpriu <b>${esc(sess.titulo || SPORTS[sess.sport])}</b></span>` : `${ic("other", 16)}<span>Atividade fora do plano</span>`}</div>
     ${statgrid([["Distância", a.dist ? fmtDist(a.sport, a.dist) : null], ["Tempo", fmtDur(a.mov)], [a.sport === "bike" ? "Velocidade" : "Ritmo", a.dist && pace && pace !== "—" ? pace : null], ["FC média", a.hr ? `${Math.round(a.hr)} bpm` : null],
       ["Subida", a.elev ? `${a.elev} m` : null], ["Carga", `${Math.round(loadOf(a))} pts`], ["Calorias", `~${fmtNum(kcal, 0)} kcal`], ["Zona", a.rpe ? `${ZONA_RPE(a.rpe)} · ${RPE[a.rpe]}` : null],
       ["Cadência", a.cadencia || null], ["Tipo", a.tipo ? esc(a.tipo) : null], ["Local", a.local && a.local !== "—" ? esc(a.local) : null]])}
     <form id="actnote" data-id="${esc(a.id)}" class="stack">
       <div class="lbl">Esforço percebido ${qtip(esc(GLOSS.RPE))}</div>${rpeChips("an_rpe", a.rpe || null)}
-      <textarea id="an_obs" rows="3" placeholder="Como foi? Dor, cansaço, o que mudou… o coach usa no próximo ajuste.">${esc(a.obs || "")}</textarea>
+      <textarea id="an_obs" rows="2" placeholder="Como foi? Dor, cansaço, o que mudou… o coach usa no próximo ajuste.">${esc(a.obs || "")}</textarea>
       <button class="btn block" type="submit">Salvar</button></form>
+    ${an}
+    ${a.sport !== "other" ? `<button type="button" class="btn ghost block" data-askfill="Sobre o meu treino de ${esc(wday(a.date, { weekday:"long" }).toLowerCase())} (${esc(a.name)}): ">${ic("chat", 16)} Perguntar ao coach sobre este treino</button>` : ""}
     ${a.src === "manual" ? `<button type="button" class="btn ghost danger block" data-del="${esc(a.id)}">${ic("trash", 16)} Apagar treino</button>` : ""}`;
 }
 /** Treino completo: etapas desenhadas por zona, passo a passo, exercícios (com troca) e mudar de dia. */
@@ -2317,6 +2333,7 @@ function historyHTML(){
   const unrated = S.activities.filter(a => !a.rpe && a.sport !== "other" && new Date(a.date) >= addDays(new Date(), -28)).length;
   return `<div class="hstats"><div><b>${S.activities.length}</b><span>atividades</span></div><div><b>${nP}</b><span>do plano</span></div><div><b>${adh ?? "—"}${adh != null ? "%" : ""}</b><span>aderência</span></div></div>
     ${unrated ? `<p class="hint">${ic("bolt", 16)}<span>${unrated} treino${unrated > 1 ? "s" : ""} recente${unrated > 1 ? "s" : ""} sem esforço avaliado (ponto laranja). Toque para avaliar: deixa o condicionamento exato.</span></p>` : ""}
+    ${analiseSafe(() => Analise.weekCompareHTML(Analise.weekCompare(S.activities, thresholds(), dayKey(new Date()))))}
     <div class="chips">${[["todos","Todos"],["plano","Do plano"],["fora","Fora do plano"]].map(([k, l]) => `<button type="button" class="chip" data-histf="${k}" aria-pressed="${k === f}">${l}</button>`).join("")}</div>
     ${groups.length ? groups.map(g => { const t = g.xs.reduce((s, a) => s + a.mov, 0);
       return `<div class="wgroup"><div class="wg-h"><b>Semana de ${fmtDate(g.k + "T12:00:00").replace(".", "")}</b><span>${g.xs.length} · ${fmtDur(t)}</span></div><div class="card pad0 list">${g.xs.map(actRowHTML).join("")}</div></div>`; }).join("")
@@ -2622,7 +2639,7 @@ function miniWeeks(t){
 }
 function competitionHTML(team, me){
   // cards de quem ainda não abriu esta versão vêm com histórico antigo: mostram zero até a pessoa abrir o app
-  team = team.map(freshTeam).map(t => t.since === RANK_START ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null });
+  team = team.map(freshTeam).map(t => t.since === RANK_START && (t.rules || 0) >= 3 ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null });
   const b0 = BOARDS.find(b => b.k === (S.board || "points")) || BOARDS[0];
   const board = rankStarted() ? b0 : { ...b0, v: () => 0 }; // antes do início, ninguém pontua
   const ranked = team.slice().sort((a, b) => board.v(b) - board.v(a)), pod = ranked.slice(0, 3), per = S.period || "semana";
@@ -2637,7 +2654,7 @@ function competitionHTML(team, me){
     <div class="hscroll chips-x">${BOARDS.map(b => `<button type="button" class="chip" data-board="${b.k}" aria-pressed="${b.k === board.k}">${b.t}</button>`).join("")}</div>
     <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${esc(t.nick)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
     ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${esc(t.nick)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
-    <p class="note">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde ${periodStart(per).toLocaleDateString("pt-BR")}.` : `${PERIODS[per]}: desde ${periodStart(per).toLocaleDateString("pt-BR")}.`}${board.k === "points" ? ` Pontos = 10 por hora (até ${Pontos.RULES.maxHorasPorTreino} h por treino) + 5 por treino de ${Pontos.RULES.minMinutos} min ou mais (até 2 por dia) + 20 na semana em que fizer natação, bike e corrida. Caminhada e "outros" não contam; treino repetido (manual + relógio) conta uma vez.` : ""}</p>
+    <p class="note">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde ${periodStart(per).toLocaleDateString("pt-BR")}.` : `${PERIODS[per]}: desde ${periodStart(per).toLocaleDateString("pt-BR")}.`}${board.k === "points" ? ` Pontos = ${Pontos.RULES.porTreinoTri} por treino de natação, bike ou corrida e ${Pontos.RULES.porTreinoOutro} por qualquer outro (força, caminhada…), com ${Pontos.RULES.minMinutos} min ou mais (do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante, ${Pontos.RULES.porTreinoExtra} cada) + ${Pontos.RULES.bonusTri} na semana em que fizer natação, bike e corrida. Treino repetido (manual + relógio) conta uma vez.` : ""}</p>
     <p class="note">Os treinos de cada um entram no placar quando a pessoa abre o app (o Strava sincroniza sozinho).</p>
     ${team.some(t => !t.periods) ? `<p class="note">Quem ainda não abriu o app nesta versão aparece com zero até entrar de novo.</p>` : ""}
   </section>
@@ -2818,6 +2835,7 @@ document.addEventListener("click", e => {
   const g = e.target.closest("[data-go]"); if (g){ if (g.dataset.sub){ if (g.dataset.go === "treinos") S.trTab = g.dataset.sub; if (g.dataset.go === "coach") S.coachTab = g.dataset.sub; } go(g.dataset.go); return; }
   const shb = e.target.closest("[data-sheet]"); if (shb){ S.sheet = shb.dataset.sheet; S.openSess = null; render(); return; }
   const ao = e.target.closest("[data-actopen]"); if (ao){ S.sheet = "act:" + ao.dataset.actopen; S.openSess = null; render(); return; }
+  const rg = e.target.closest("[data-rpeset]"); if (rg){ const a = S.activities.find(x => x.id === rg.dataset.id); if (a){ a.rpe = +rg.dataset.rpeset; persistActivities(); saveTeam(); render(); $(".sheet")?.scrollTo(0, 0); flash(S.view, `Esforço ${a.rpe} salvo. Agora complete e veja a análise.`, false); } return; }
   const jp = e.target.closest("[data-jump]"); if (jp){ document.getElementById(jp.dataset.jump)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const tt = e.target.closest("[data-trtab]"); if (tt){ S.trTab = tt.dataset.trtab; render(); return; }
   const ct = e.target.closest("[data-coachtab]"); if (ct){ S.coachTab = ct.dataset.coachtab; render(); if (S.coachTab === "conversa") scrollChat(); else window.scrollTo(0, 0); return; }
@@ -2935,7 +2953,6 @@ document.addEventListener("submit", e => {
   if (e.target.id === "actnote"){
     const a = S.activities.find(x => x.id === e.target.dataset.id); if (!a) return;
     const r = +(pick("an_rpe") || 0); if (r) a.rpe = r; a.obs = $("#an_obs").value.trim().slice(0, 500);
-    if (S.sheet?.startsWith("act:")) S.sheet = null;
     persistActivities(); saveTeam(); flash(S.view, "Salvo. O coach considera no próximo ajuste.", false);
   }
   if (e.target.id === "quickgym"){

@@ -10,24 +10,29 @@ const at = (k, hhmm = "07:00") => new Date(`${k}T${hhmm}:00-03:00`).toISOString(
 let seq = 0;
 const act = (k, sport, min, extra = {}) => ({ id: String(++seq), date: at(k, extra.h), sport, mov: min * 60, dist: extra.dist || 0, src: extra.src || "strava", ...extra });
 
-test("regras básicas: 10/h + 5 por treino (máx. 2/dia)", () => {
+test("regras básicas: 10 por treino de triatlo, 5 por outro; do 4º treino do dia em diante, 5", () => {
   const days = P.daily([act(TODAY, "run", 60), act(TODAY, "bike", 60), act(TODAY, "strength", 30)], RANK);
-  // 2,5 h → 25 pts + 2 treinos × 5 (o 3º treino do dia não ganha os 5) = 35
-  assert.equal(days[TODAY].p, 35);
+  assert.equal(days[TODAY].p, 10 + 10 + 5);
   assert.equal(days[TODAY].n, 3);
+  const d2 = P.daily([act(TODAY, "strength", 30, { h: "06:00" }), act(TODAY, "other", 40, { h: "08:00" }), act(TODAY, "run", 20, { h: "12:00" }), act(TODAY, "run", 20, { h: "18:00" })], RANK);
+  assert.equal(d2[TODAY].p, 10 + 10 + 5 + 5, "2 corridas e 1 de 5 cheios; o 4º vale 5");
+  const d3 = P.daily([1, 2, 3, 4, 5].map(i => act(TODAY, "run", 20, { h: `0${i + 4}:00` })), RANK);
+  assert.equal(d3[TODAY].p, 3 * 10 + 2 * 5, "5 corridas: 3 × 10 + 2 × 5");
+  assert.equal(P.daily([act(TODAY, "brick", 90)], RANK)[TODAY].p, 10, "transição é triatlo");
+  assert.equal(P.daily([act(TODAY, "run", 300)], RANK)[TODAY].p, 10, "duração não muda o valor");
 });
 
-test("treino curto, 'outros' e relógio esquecido ligado", () => {
-  const days = P.daily([act(TODAY, "run", 5), act(TODAY, "other", 120), act("2026-10-20", "bike", 9 * 60)], RANK);
-  assert.equal(days[TODAY], undefined, "menos de 10 min e 'outros' não contam");
-  assert.equal(days["2026-10-20"].p, 50 + 5, "no máximo 5 h por treino");
+test("treino curto não conta; caminhada ('outros') vale 5", () => {
+  const days = P.daily([act(TODAY, "run", 5), act("2026-10-20", "other", 50)], RANK);
+  assert.equal(days[TODAY], undefined, "menos de 10 min não conta");
+  assert.equal(days["2026-10-20"].p, 5);
 });
 
 test("bônus das 3 modalidades: uma vez por semana, no dia da 3ª", () => {
   const days = P.daily([act("2026-10-19", "swim", 40), act("2026-10-20", "bike", 60), act("2026-10-21", "run", 30), act("2026-10-21", "swim", 30),
     act("2026-10-26", "brick", 60), act("2026-10-27", "swim", 30)], RANK);
   assert.ok(!days["2026-10-19"].tri && !days["2026-10-20"].tri && days["2026-10-21"].tri);
-  assert.equal(days["2026-10-21"].p, Math.round(1 * 10 + 2 * 5 + 20));
+  assert.equal(days["2026-10-21"].p, 10 + 10 + 20);
   assert.ok(days["2026-10-27"].tri, "brick conta como bike e corrida");
 });
 
@@ -48,8 +53,8 @@ test("períodos somam os dias e nunca começam antes da competição", () => {
   const days = P.daily([act("2026-10-10", "run", 60), act("2026-10-15", "run", 60), act("2026-10-20", "bike", 60), act(TODAY, "swim", 60)], RANK);
   assert.equal(days["2026-10-10"], undefined, "antes do início da competição não conta");
   const ps = P.periods(days, TODAY, RANK);
-  assert.equal(ps.dia.points, 15); assert.equal(ps.semana.points, 30); assert.equal(ps.periodo.points, 45);
-  assert.equal(ps.mes.points, 45);
+  assert.equal(ps.dia.points, 10); assert.equal(ps.semana.points, 20); assert.equal(ps.periodo.points, 30);
+  assert.equal(ps.mes.points, 30);
   assert.equal(P.periodStartKey("mes", "2026-11-03", RANK), "2026-11-01");
   assert.equal(P.periodStartKey("semana", "2026-10-15", RANK), "2026-10-14");
 });
@@ -58,10 +63,10 @@ test("placar recalculado no dia em que é visto (sem número velho)", () => {
   const days = P.daily([act("2026-10-20", "run", 60), act("2026-10-21", "bike", 60)], RANK);
   const doc = { nick: "Cassini", days, forma: 20, updatedAt: at("2026-10-21", "20:00") };
   const hoje = P.view(doc, "2026-10-21", RANK), amanha = P.view(doc, "2026-10-22", RANK), semanaQueVem = P.view(doc, "2026-10-26", RANK);
-  assert.equal(hoje.periods.dia.points, 15); assert.equal(amanha.periods.dia.points, 0);
-  assert.equal(amanha.periods.semana.points, 30); assert.equal(semanaQueVem.periods.semana.points, 0);
+  assert.equal(hoje.periods.dia.points, 10); assert.equal(amanha.periods.dia.points, 0);
+  assert.equal(amanha.periods.semana.points, 20); assert.equal(semanaQueVem.periods.semana.points, 0);
   assert.equal(semanaQueVem.points, 0); assert.equal(semanaQueVem.week.hours, 0);
-  assert.equal(semanaQueVem.periods.periodo.points, 30);
+  assert.equal(semanaQueVem.periods.periodo.points, 20);
   assert.equal(P.view({ nick: "antigo" }, TODAY, RANK), null);
 });
 
@@ -70,4 +75,19 @@ test("sequências", () => {
   for (let i = 0; i < 4; i++) xs.push(act(P.util.addK("2026-10-12", i), "bike", 30));
   const days = P.daily(xs, "2026-10-01");
   assert.deepEqual(P.streaks(days, TODAY), { streakDays: 2, streakWeeks: 1 }, "hoje ainda sem treino: conta até ontem");
+});
+
+test("evolução: condicionamento do histórico inteiro, início do período recalculado no dia visto", () => {
+  // série de 2026-10-13 a 2026-10-21: 30 → 38
+  const formaSerie = { ini: "2026-10-13", v: [30, 31, 32, 33, 34, 35, 36, 37, 38] };
+  const doc = { nick: "Cassini", days: {}, forma: 38, formaSerie };
+  const v = P.view(doc, "2026-10-21", RANK);
+  assert.equal(v.forma, 38);
+  assert.equal(v.periods.semana.forma_ini, 35, "véspera da segunda 19/10");
+  assert.equal(v.periods.periodo.forma_ini, 30, "véspera do início do ranking: não é zero");
+  assert.equal(v.periods.mes.forma_ini, 30, "mês começa antes do ranking: usa o início do ranking");
+  const depois = P.view(doc, "2026-10-28", RANK); // sem treino desde 21/10: cai e a semana nova começa do valor de domingo 25
+  assert.ok(depois.forma < 38);
+  assert.ok(Math.abs(depois.periods.semana.forma_ini - P.formaAt(formaSerie, "2026-10-25")) < 1e-9);
+  assert.equal(P.formaAt(null, "2026-10-21"), null);
 });

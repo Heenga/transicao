@@ -3,15 +3,16 @@
    recalcula na hora a partir dos dias: virar o dia ou a semana nunca deixa número velho na tela.
 
    Regras:
-   - Conta: natação, bike, corrida, transição e força com 10 min ou mais. "Outros" (caminhada etc.) não conta.
-   - 10 pontos por hora de treino (cada treino conta no máximo 5 h: relógio esquecido ligado não vira pontuação).
-   - 5 pontos por treino, no máximo 2 treinos por dia (dividir um treino em pedaços não rende ponto extra).
+   - Conta todo treino com 10 min ou mais.
+   - 10 pontos por treino de triatlo (natação, bike, corrida, transição); 5 pontos por qualquer outro (força, caminhada etc.).
+   - Até 3 treinos por dia valem o normal (os de maior valor); do 4º em diante cada um vale 5 (dividir um treino em pedaços rende pouco).
    - +20 na semana (segunda a domingo) em que fizer natação, bike e corrida; o bônus entra no dia da 3ª modalidade.
    - Treino registrado à mão que repete um treino sincronizado (mesmo dia, mesma modalidade, duração parecida) não conta em dobro. */
 (function (root) {
 "use strict";
-const RULES = { porHora: 10, maxHorasPorTreino: 5, porTreino: 5, maxTreinosPorDia: 2, bonusTri: 20, minMinutos: 10 };
-const SCORED = new Set(["swim", "bike", "run", "brick", "strength"]);
+const RULES = { porTreinoTri: 10, porTreinoOutro: 5, cheiosPorDia: 3, porTreinoExtra: 5, bonusTri: 20, minMinutos: 10 };
+const TRI = new Set(["swim", "bike", "run", "brick"]);
+const valueOf = a => TRI.has(a.sport) ? RULES.porTreinoTri : RULES.porTreinoOutro;
 const dayKey = d => { const x = new Date(d); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); };
 const noon = k => new Date(k + "T12:00:00");
 const addK = (k, n) => { const d = noon(k); d.setDate(d.getDate() + n); return dayKey(d); };
@@ -21,7 +22,7 @@ const fitsSport = (a, b) => a === b || a === "brick" && (b === "bike" || b === "
 
 /** Treinos que pontuam (válidos e sem duplicata manual), a partir de `from` (YYYY-MM-DD). */
 function scoringActs(acts, from) {
-  const xs = (acts || []).filter(a => a && SCORED.has(a.sport) && (a.mov || 0) >= RULES.minMinutos * 60 && (!from || dayKey(a.date) >= from));
+  const xs = (acts || []).filter(a => a && a.sport && (a.mov || 0) >= RULES.minMinutos * 60 && (!from || dayKey(a.date) >= from));
   // mesmo treino vindo de duas fontes (ex.: Strava e arquivo do Garmin): começa até 10 min de diferença, duração parecida
   const kept = [];
   for (const a of [...xs].sort((p, q) => String(p.date).localeCompare(String(q.date))))
@@ -35,9 +36,9 @@ function daily(acts, from) {
   const days = {}, triWeeks = new Set(), sportsByWeek = {};
   const xs = scoringActs(acts, from).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   for (const a of xs) {
-    const k = dayKey(a.date), d = days[k] ||= { p: 0, n: 0, ms: 0, mb: 0, mr: 0, mx: 0, ds: 0, db: 0, dr: 0, _sec: 0 };
-    const sec = Math.min(a.mov, RULES.maxHorasPorTreino * 3600), min = Math.round(a.mov / 60);
-    d._sec += sec; d.n++;
+    const k = dayKey(a.date), d = days[k] ||= { p: 0, n: 0, ms: 0, mb: 0, mr: 0, mx: 0, ds: 0, db: 0, dr: 0, _v: [] };
+    const min = Math.round(a.mov / 60);
+    d._v.push(valueOf(a)); d.n++;
     if (a.sport === "swim") { d.ms += min; d.ds += a.dist || 0; }
     else if (a.sport === "bike") { d.mb += min; d.db += a.dist || 0; }
     else if (a.sport === "run" || a.sport === "brick") { d.mr += min; d.dr += a.dist || 0; }
@@ -48,8 +49,8 @@ function daily(acts, from) {
     if (!triWeeks.has(wk) && set.has("swim") && set.has("bike") && set.has("run")) { triWeeks.add(wk); d.tri = 1; }
   }
   for (const d of Object.values(days)) {
-    d.p = Math.round(d._sec / 3600 * RULES.porHora + Math.min(d.n, RULES.maxTreinosPorDia) * RULES.porTreino + (d.tri ? RULES.bonusTri : 0));
-    delete d._sec;
+    d.p = d._v.sort((x, y) => y - x).reduce((t, v, i) => t + (i < RULES.cheiosPorDia ? v : Math.min(v, RULES.porTreinoExtra)), 0) + (d.tri ? RULES.bonusTri : 0);
+    delete d._v;
   }
   return days;
 }
@@ -101,16 +102,28 @@ function periods(days, today, rankStart) {
  * Card de um atleta no placar, recalculado HOJE a partir dos dias gravados. Mantém os campos que não dependem do
  * período (condicionamento, aderência, conquistas). Doc antigo sem `days` → null (o app usa o caminho antigo).
  */
+/** Condicionamento no dia k pela série diária do resumo; depois do último dia, cai como o modelo (sem treino). */
+function formaAt(serie, k) {
+  if (!serie?.ini || !serie.v?.length) return null;
+  const i = Math.round((noon(k) - noon(serie.ini)) / 864e5);
+  if (i < 0) return serie.v[0];
+  if (i < serie.v.length) return serie.v[i];
+  return +(serie.v.at(-1) * Math.pow(41 / 42, i - serie.v.length + 1)).toFixed(1);
+}
+
 function view(doc, today, rankStart) {
   if (!doc || !doc.days) return null;
-  const ps = periods(doc.days, today, rankStart), old = doc.periods || {};
-  for (const k of PERIOD_KEYS) Object.assign(ps[k], { forma: old[k]?.forma ?? doc.forma ?? null, forma_ini: old[k]?.forma_ini ?? null });
+  const ps = periods(doc.days, today, rankStart), old = doc.periods || {}, s = doc.formaSerie;
+  const forma = s ? formaAt(s, today) : doc.forma ?? null;
+  // Evolução = condicionamento hoje × no fim da véspera do início do período (recalculado para hoje, nunca o valor do dia em que salvou)
+  for (const k of PERIOD_KEYS) Object.assign(ps[k], s ? { forma, forma_ini: formaAt(s, addK(periodStartKey(k, today, rankStart), -1)) }
+    : { forma: old[k]?.forma ?? doc.forma ?? null, forma_ini: old[k]?.forma_ini ?? null });
   const w = ps.semana;
-  return { ...doc, periods: ps, points: w.points, week: { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions },
+  return { ...doc, periods: ps, points: w.points, forma, forma4: s ? formaAt(s, addK(today, -28)) : doc.forma4 ?? null, week: { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions },
     ...streaks(doc.days, today), weeks12: weeks12(doc.days, today) };
 }
 
-const Pontos = { RULES, scoringActs, daily, periodStartKey, sumPeriod, periods, streaks, weeks12, view, util: { dayKey, mondayK, addK } };
+const Pontos = { RULES, scoringActs, daily, periodStartKey, sumPeriod, periods, streaks, weeks12, formaAt, view, util: { dayKey, mondayK, addK } };
 root.Pontos = Pontos;
 if (typeof module !== "undefined" && module.exports) module.exports = Pontos;
 })(typeof window !== "undefined" ? window : globalThis);

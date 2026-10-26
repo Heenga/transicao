@@ -304,6 +304,14 @@ div.sc{cursor:default}
 .rpe span{display:grid;place-items:center;height:38px;border-radius:10px;font:700 14px/1 var(--mono);color:var(--ink);background:var(--surface2);border-bottom:3px solid var(--c)}
 .rpe > :nth-child(-n+3){--c:var(--ok)} .rpe > :nth-child(n+4):nth-child(-n+6){--c:var(--warn)} .rpe > :nth-child(n+7){--c:var(--bad)}
 .rpe input:checked + span,.rpe button:active span{background:var(--ink);color:var(--bg)}
+.rpegate{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:18px;background:var(--surface2)}
+.rpegate h3{font-size:20px;margin:0}
+.rpegrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.rpegrid button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 2px 8px;border:0;border-bottom:4px solid var(--c);border-radius:12px;background:var(--surface);color:var(--ink);cursor:pointer;font:inherit;min-width:0}
+.rpegrid button b{font:700 20px/1 var(--mono)}
+.rpegrid button span{font-size:10.5px;line-height:1.15;color:var(--muted);text-align:center}
+.rpegrid button:active,.rpegrid button:hover{background:var(--ink);color:var(--bg)}
+.rpegrid button:active span,.rpegrid button:hover span{color:var(--bg)}
 .rpe-scale{display:flex;justify-content:space-between;margin-top:4px;font-size:11.5px}
 .beer{flex-direction:row;align-items:center;gap:14px}
 .beer-n{flex:none;width:64px;height:64px;border-radius:18px;background:color-mix(in srgb,var(--warn) 16%,transparent);display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
@@ -624,11 +632,12 @@ body[data-view="coach"][data-ctab="conversa"] main{padding-bottom:0;gap:0}
 .t-estável{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
 
 /* ---------- Comida ---------- */
-.mrings{display:grid;grid-template-columns:auto auto auto 1fr;gap:12px;align-items:center}
+.mrings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:center;justify-items:center}
 .mring{display:flex;flex-direction:column;align-items:center;gap:6px;font:600 12px/1 var(--body);color:var(--muted)}
 .mring .ring-in b{font-size:22px}
-.mside{display:flex;flex-direction:column;gap:8px;min-width:0}
-.mside > div{display:flex;flex-direction:column;gap:3px;padding:10px;border-radius:12px;background:var(--surface2)}
+.mside{grid-column:1/-1;justify-self:stretch;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
+.mside > div{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--surface2);min-width:0}
+.mside span,.mside b{overflow-wrap:anywhere}
 .mside span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted)}
 .mside b{font:700 16px/1 var(--display)}
 .photopick{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -752,7 +761,7 @@ form#profile .days:not(.pills) label{flex:1;min-width:40px;padding:0}
   .qa b{font-size:12px} .qa-i{width:38px;height:38px}
   .stats3 b{font-size:16px}
   .cd-clock b{font-size:26px}
-  .mrings{grid-template-columns:repeat(3,1fr);gap:8px}.mside{grid-column:1/-1;flex-direction:row}.mside > div{flex:1}
+  .mrings{gap:8px}
   .sugg{grid-template-columns:1fr}
 }
 @media (min-width:600px){body{box-shadow:0 0 0 1px var(--line)}}
