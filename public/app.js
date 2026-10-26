@@ -2656,10 +2656,16 @@ function competitionHTML(team, me){
     <div class="hscroll chips-x">${BOARDS.map(b => `<button type="button" class="chip" data-board="${b.k}" aria-pressed="${b.k === board.k}">${b.t}</button>`).join("")}</div>
     <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${esc(t.nick)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
     ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${esc(t.nick)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
-    <p class="note">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde ${periodStart(per).toLocaleDateString("pt-BR")}.` : `${PERIODS[per]}: desde ${periodStart(per).toLocaleDateString("pt-BR")}.`}${board.k === "points" ? ` Pontos = ${Pontos.RULES.porTreinoTri} por treino de natação, bike ou corrida e ${Pontos.RULES.porTreinoOutro} por qualquer outro (força, caminhada…), com ${Pontos.RULES.minMinutos} min ou mais (do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante, ${Pontos.RULES.porTreinoExtra} cada) + ${Pontos.RULES.bonusTri} na semana em que fizer natação, bike e corrida. Treino repetido (manual + relógio) conta uma vez.` : ""}</p>
-    <p class="note">Os treinos de cada um entram no placar quando a pessoa abre o app (o Strava sincroniza sozinho).</p>
-    ${team.some(t => t.convertido) ? `<p class="note">Os pontos de ${team.filter(t => t.convertido).map(t => esc(t.nick)).join(", ")} foram convertidos para a regra nova a partir do resumo antigo; ficam exatos quando a pessoa abrir o app.</p>` : ""}
-    ${team.some(t => t.pendente) ? `<p class="note">${team.filter(t => t.pendente).map(t => esc(t.nick)).join(", ")} ainda não abri${team.filter(t => t.pendente).length > 1 ? "ram" : "u"} o app nesta versão: aparece${team.filter(t => t.pendente).length > 1 ? "m" : ""} com zero até entrar de novo.</p>` : ""}
+    <p class="rk-ctx">${ic(board.k === "points" ? "clock" : board.k === "const" ? "flame" : "chart", 14)}<span>${board.k === "forma" ? "Condicionamento atual (0–100)" : board.k === "const" ? "Semanas seguidas com 4+ treinos" : board.k === "evol" ? `Evolução desde ${fmtDate(periodStart(per)).replace(".", "")}` : `${per === "periodo" ? "Todo o período" : PERIODS[per]} · desde ${fmtDate(periodStart(per)).replace(".", "")}`}</span></p>
+    ${team.some(t => t.convertido || t.pendente) ? `<div class="rk-status">${team.filter(t => t.convertido || t.pendente).map(t => `<div><span class="avatar xs">${esc(initialOf(t.nick))}</span><b>${esc(t.nick)}</b><span class="pill" style="--c:var(${t.pendente ? "--muted" : "--warn"})">${t.pendente ? "aguardando abrir o app" : "pontos estimados"}</span></div>`).join("")}</div>` : ""}
+    ${board.k === "points" ? `<details class="rk-rules" ${keepOpen("regras")}><summary>${ic("target", 16)}<b>Como pontuar</b>${ic("chev", 16)}</summary>
+      <div class="rk-grid">
+        <div><b>+${Pontos.RULES.porTreinoTri}</b><span>natação, bike ou corrida</span></div>
+        <div><b>+${Pontos.RULES.porTreinoOutro}</b><span>outros: força, caminhada…</span></div>
+        <div><b>+${Pontos.RULES.bonusTri}</b><span>fez as 3 modalidades na semana</span></div>
+      </div>
+      <ul class="rk-fine"><li>Vale treino de ${Pontos.RULES.minMinutos} min ou mais</li><li>Do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante: ${Pontos.RULES.porTreinoExtra} pts cada</li><li>Treino repetido (manual + relógio) conta uma vez</li><li>Os pontos de cada um atualizam quando a pessoa abre o app${team.some(t => t.convertido) ? "; “estimados” = calculados do resumo antigo" : ""}</li></ul>
+    </details>` : ""}
   </section>
   <div class="sect-h"><h2>Atletas</h2></div>
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4) / t.forma4 * 100).toFixed(1) : null;
