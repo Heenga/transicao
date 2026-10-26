@@ -111,8 +111,22 @@ function formaAt(serie, k) {
   return +(serie.v.at(-1) * Math.pow(41 / 42, i - serie.v.length + 1)).toFixed(1);
 }
 
+/** Resumo gravado pela regra antiga (rules < 3: 10 pts/hora + 5 por treino) convertido para a regra atual a partir do que cada dia guarda:
+    quantos treinos (n) e os minutos por modalidade. Na regra antiga só a força pontuava fora do triatlo (minutos em `mx`), então
+    um dia com minutos de força conta 1 treino de força e o resto como triatlo. Fica exato quando a pessoa abre o app e regrava. */
+function upgradeDays(days) {
+  const out = {};
+  for (const [k, d] of Object.entries(days || {})) {
+    const outros = d.mx > 0 ? Math.min(1, d.n) : 0, vals = [...Array(Math.max(0, d.n - outros)).fill(RULES.porTreinoTri), ...Array(outros).fill(RULES.porTreinoOutro)];
+    out[k] = { ...d, p: vals.reduce((t, v, i) => t + (i < RULES.cheiosPorDia ? v : Math.min(v, RULES.porTreinoExtra)), 0) + (d.tri ? RULES.bonusTri : 0) };
+  }
+  return out;
+}
+
 function view(doc, today, rankStart) {
   if (!doc || !doc.days) return null;
+  const antigo = (doc.rules || 0) < 3;
+  if (antigo) doc = { ...doc, days: upgradeDays(doc.days), rules: 3, convertido: true };
   const ps = periods(doc.days, today, rankStart), old = doc.periods || {}, s = doc.formaSerie;
   const forma = s ? formaAt(s, today) : doc.forma ?? null;
   // Evolução = condicionamento hoje × no fim da véspera do início do período (recalculado para hoje, nunca o valor do dia em que salvou)
@@ -123,7 +137,7 @@ function view(doc, today, rankStart) {
     ...streaks(doc.days, today), weeks12: weeks12(doc.days, today) };
 }
 
-const Pontos = { RULES, scoringActs, daily, periodStartKey, sumPeriod, periods, streaks, weeks12, formaAt, view, util: { dayKey, mondayK, addK } };
+const Pontos = { RULES, scoringActs, daily, upgradeDays, periodStartKey, sumPeriod, periods, streaks, weeks12, formaAt, view, util: { dayKey, mondayK, addK } };
 root.Pontos = Pontos;
 if (typeof module !== "undefined" && module.exports) module.exports = Pontos;
 })(typeof window !== "undefined" ? window : globalThis);

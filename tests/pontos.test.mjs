@@ -91,3 +91,17 @@ test("evolução: condicionamento do histórico inteiro, início do período rec
   assert.ok(Math.abs(depois.periods.semana.forma_ini - P.formaAt(formaSerie, "2026-10-25")) < 1e-9);
   assert.equal(P.formaAt(null, "2026-10-21"), null);
 });
+
+test("resumo gravado pela regra antiga é convertido para a regra atual", () => {
+  const old = { "2026-10-19": { p: 99, n: 2, ms: 40, mb: 60, mr: 0, mx: 0, ds: 0, db: 0, dr: 0 },
+    "2026-10-20": { p: 99, n: 2, ms: 0, mb: 0, mr: 30, mx: 45, ds: 0, db: 0, dr: 0, tri: 1 },
+    "2026-10-21": { p: 99, n: 5, ms: 0, mb: 0, mr: 100, mx: 0, ds: 0, db: 0, dr: 0 } };
+  const up = P.upgradeDays(old);
+  assert.equal(up["2026-10-19"].p, 20, "natação + bike");
+  assert.equal(up["2026-10-20"].p, 10 + 5 + 20, "corrida + força + bônus das 3 modalidades");
+  assert.equal(up["2026-10-21"].p, 3 * 10 + 2 * 5, "5 treinos de triatlo");
+  const v = P.view({ nick: "x", since: RANK, rules: 2, days: old }, TODAY, RANK);
+  assert.equal(v.points, 20 + 35 + 40);
+  assert.ok(v.convertido && v.rules === 3);
+  assert.equal(P.view({ since: RANK, rules: 3, days: old }, TODAY, RANK).points, 99 * 3, "regra atual não é mexida");
+});

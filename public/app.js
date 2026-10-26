@@ -2639,7 +2639,9 @@ function miniWeeks(t){
 }
 function competitionHTML(team, me){
   // cards de quem ainda não abriu esta versão vêm com histórico antigo: mostram zero até a pessoa abrir o app
-  team = team.map(freshTeam).map(t => t.since === RANK_START && (t.rules || 0) >= 3 ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null });
+  // resumo com regra antiga e com os dias gravados: Pontos.view já converteu para a regra atual (t.convertido).
+  // Sem os dias (versão bem antiga) não dá para converter: o placar zera até a pessoa abrir o app.
+  team = team.map(freshTeam).map(t => t.since === RANK_START && (t.rules || 0) >= 3 ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null, pendente: true });
   const b0 = BOARDS.find(b => b.k === (S.board || "points")) || BOARDS[0];
   const board = rankStarted() ? b0 : { ...b0, v: () => 0 }; // antes do início, ninguém pontua
   const ranked = team.slice().sort((a, b) => board.v(b) - board.v(a)), pod = ranked.slice(0, 3), per = S.period || "semana";
@@ -2656,13 +2658,14 @@ function competitionHTML(team, me){
     ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${esc(t.nick)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
     <p class="note">${board.k === "forma" ? "Condicionamento atual de cada um (0–100)." : board.k === "const" ? "Semanas seguidas com 4 ou mais treinos." : board.k === "evol" ? `Variação do condicionamento desde ${periodStart(per).toLocaleDateString("pt-BR")}.` : `${PERIODS[per]}: desde ${periodStart(per).toLocaleDateString("pt-BR")}.`}${board.k === "points" ? ` Pontos = ${Pontos.RULES.porTreinoTri} por treino de natação, bike ou corrida e ${Pontos.RULES.porTreinoOutro} por qualquer outro (força, caminhada…), com ${Pontos.RULES.minMinutos} min ou mais (do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante, ${Pontos.RULES.porTreinoExtra} cada) + ${Pontos.RULES.bonusTri} na semana em que fizer natação, bike e corrida. Treino repetido (manual + relógio) conta uma vez.` : ""}</p>
     <p class="note">Os treinos de cada um entram no placar quando a pessoa abre o app (o Strava sincroniza sozinho).</p>
-    ${team.some(t => !t.periods) ? `<p class="note">Quem ainda não abriu o app nesta versão aparece com zero até entrar de novo.</p>` : ""}
+    ${team.some(t => t.convertido) ? `<p class="note">Os pontos de ${team.filter(t => t.convertido).map(t => esc(t.nick)).join(", ")} foram convertidos para a regra nova a partir do resumo antigo; ficam exatos quando a pessoa abrir o app.</p>` : ""}
+    ${team.some(t => t.pendente) ? `<p class="note">${team.filter(t => t.pendente).map(t => esc(t.nick)).join(", ")} ainda não abri${team.filter(t => t.pendente).length > 1 ? "ram" : "u"} o app nesta versão: aparece${team.filter(t => t.pendente).length > 1 ? "m" : ""} com zero até entrar de novo.</p>` : ""}
   </section>
   <div class="sect-h"><h2>Atletas</h2></div>
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4) / t.forma4 * 100).toFixed(1) : null;
     return `<article class="card mate${t.__id === me ? " me" : ""}">
-      <div class="mate-h"><span class="avatar">${esc(initialOf(t.nick))}</span><div><b>${esc(t.nick)}${you(t)}</b><span class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : "", t.updatedAt ? `atualizado ${agoText(t.updatedAt)}` : ""].filter(Boolean).join(" · ") || "Nenhum treino contado ainda"}</span></div><span class="mate-pts"><b>${rankStarted() ? t.points ?? 0 : 0}</b><span>pts</span></span></div>
-      <div class="stats3"><div><span>Condição</span><b>${t.forma != null ? fmtNum(t.forma, 1) : "—"}${ev != null ? ` <small class="delta ${ev >= 0 ? "good" : "bad"}">${ev >= 0 ? "▲" : "▼"}${Math.abs(ev)}%</small>` : ""}</b></div><div><span>Horas</span><b>${fmtNum(w.hours || 0, 1)}</b></div><div><span>Treinos</span><b>${w.sessions ?? 0}</b></div></div>
+      <div class="mate-h"><span class="avatar">${esc(initialOf(t.nick))}</span><div><b>${esc(t.nick)}${you(t)}</b><span class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : "", t.updatedAt ? `atualizado ${agoText(t.updatedAt)}` : ""].filter(Boolean).join(" · ") || "Nenhum treino contado ainda"}</span></div><span class="mate-pts"><b>${rankStarted() ? t.points ?? 0 : 0}</b><span>pts na semana</span></span></div>
+      <div class="stats3"><div><span>Condição</span><b>${t.forma != null ? fmtNum(t.forma, 1) : "—"}${ev != null ? ` <small class="delta ${ev >= 0 ? "good" : "bad"}">${ev >= 0 ? "▲" : "▼"}${Math.abs(ev)}%</small>` : ""}</b></div><div><span>Horas/sem</span><b>${fmtNum(w.hours || 0, 1)}</b></div><div><span>Treinos/sem</span><b>${w.sessions ?? 0}</b></div></div>
       ${miniWeeks(t)}
       <div class="mate-dist"><span class="c-swim">${ic("swim", 15)}${fmtNum(w.swim_m || 0, 0)} m</span><span class="c-bike">${ic("bike", 15)}${fmtNum(w.bike_km || 0, 1)} km</span><span class="c-run">${ic("run", 15)}${fmtNum(w.run_km || 0, 1)} km</span></div>
       ${(t.badges || []).length ? `<div class="badges">${t.badges.map(b => `<span class="badge" title="${esc(b.d)}">${esc(b.t)}</span>`).join("")}</div>` : ""}
