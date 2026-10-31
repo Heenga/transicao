@@ -22,10 +22,22 @@ test("regras básicas: 10 por treino de triatlo, 5 por outro; do 4º treino do d
   assert.equal(P.daily([act(TODAY, "run", 300)], RANK)[TODAY].p, 10, "duração não muda o valor");
 });
 
-test("treino curto não conta; caminhada ('outros') vale 5", () => {
-  const days = P.daily([act(TODAY, "run", 5), act("2026-10-20", "other", 50)], RANK);
-  assert.equal(days[TODAY], undefined, "menos de 10 min não conta");
+test("treino curto conta (sem tempo mínimo); caminhada ('outros') vale 5", () => {
+  const days = P.daily([act(TODAY, "swim", 3), act("2026-10-20", "other", 50)], RANK);
+  assert.equal(days[TODAY].p, 10, "200 m de natação em 3 min valem como qualquer treino");
   assert.equal(days["2026-10-20"].p, 5);
+  const dia = P.daily([act(TODAY, "bike", 40, { h: "11:37" }), act(TODAY, "swim", 3, { h: "18:49" })], RANK)[TODAY];
+  assert.equal(dia.p, 20, "2 treinos no dia: pontua os 2"); assert.equal(dia.n, 2);
+  assert.equal(P.daily([act(TODAY, "strength", 0, { src: "manual", id: "m9" })], RANK)[TODAY].p, 5, "registro manual sem minutos conta");
+});
+
+test("treino curto logo depois de outro não é duplicata; a mesma atividade em duas fontes é", () => {
+  const curtos = [act(TODAY, "swim", 5, { h: "19:00" }), act(TODAY, "swim", 5, { h: "19:06" })];
+  assert.equal(P.scoringActs(curtos, RANK).length, 2, "o 2º começou depois do 1º acabar");
+  const duas = [act(TODAY, "bike", 40, { h: "17:36" }), act(TODAY, "bike", 35, { h: "17:37" })];
+  assert.equal(P.scoringActs(duas, RANK).length, 1, "Garmin + Zwift do mesmo treino");
+  const semTempo = [act(TODAY, "strength", 50), act(TODAY, "strength", 0, { src: "manual", id: "m8" })];
+  assert.equal(P.scoringActs(semTempo, RANK).length, 1, "manual sem minutos que repete o sincronizado");
 });
 
 test("bônus das 3 modalidades: uma vez por semana, no dia da 3ª", () => {
@@ -39,6 +51,16 @@ test("bônus das 3 modalidades: uma vez por semana, no dia da 3ª", () => {
 test("treino manual que repete o sincronizado não conta em dobro", () => {
   const xs = [act(TODAY, "run", 45), act(TODAY, "run", 50, { src: "manual", id: "m1" }), act(TODAY, "swim", 30, { src: "manual", id: "m2" })];
   assert.equal(P.scoringActs(xs, RANK).length, 2);
+});
+
+test("distâncias da semana: natação curta soma e duplicata não perde a distância", () => {
+  const days = P.daily([
+    act("2026-10-27", "swim", 7.5, { h: "19:26", dist: 450 }), act("2026-10-30", "swim", 3, { h: "18:49", dist: 200 }),
+    act("2026-10-28", "bike", 40, { h: "17:36", dist: 0 }), act("2026-10-28", "bike", 35, { h: "17:37", dist: 13242 }),
+    act("2026-10-29", "bike", 40, { h: "17:00", dist: 0 }), act("2026-10-29", "bike", 40, { h: "17:01", dist: 20000, src: "manual", id: "m7" }),
+    act("2026-10-30", "bike", 40, { h: "11:37", dist: 17079 }), act("2026-10-31", "run", 28, { h: "10:18", dist: 5008 })], "2026-10-14");
+  const w = P.periods(days, "2026-10-31", "2026-10-14").semana;
+  assert.equal(w.swim_m, 650); assert.equal(w.bike_km, 50.3); assert.equal(w.run_km, 5); assert.equal(w.sessions, 6);
 });
 
 test("madrugada fica no dia certo e segunda cedo na semana certa", () => {

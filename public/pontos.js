@@ -3,14 +3,14 @@
    recalcula na hora a partir dos dias: virar o dia ou a semana nunca deixa número velho na tela.
 
    Regras:
-   - Conta todo treino com 10 min ou mais.
+   - Conta todo treino, sem tempo mínimo (200 m de natação têm poucos minutos em movimento e valem igual).
    - 10 pontos por treino de triatlo (natação, bike, corrida, transição); 5 pontos por qualquer outro (força, caminhada etc.).
    - Até 3 treinos por dia valem o normal (os de maior valor); do 4º em diante cada um vale 5 (dividir um treino em pedaços rende pouco).
    - +20 na semana (segunda a domingo) em que fizer natação, bike e corrida; o bônus entra no dia da 3ª modalidade.
    - Treino registrado à mão que repete um treino sincronizado (mesmo dia, mesma modalidade, duração parecida) não conta em dobro. */
 (function (root) {
 "use strict";
-const RULES = { porTreinoTri: 10, porTreinoOutro: 5, cheiosPorDia: 3, porTreinoExtra: 5, bonusTri: 20, minMinutos: 10 };
+const RULES = { porTreinoTri: 10, porTreinoOutro: 5, cheiosPorDia: 3, porTreinoExtra: 5, bonusTri: 20 };
 const TRI = new Set(["swim", "bike", "run", "brick"]);
 const valueOf = a => TRI.has(a.sport) ? RULES.porTreinoTri : RULES.porTreinoOutro;
 const dayKey = d => { const x = new Date(d); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); };
@@ -22,13 +22,21 @@ const fitsSport = (a, b) => a === b || a === "brick" && (b === "bike" || b === "
 
 /** Treinos que pontuam (válidos e sem duplicata manual), a partir de `from` (YYYY-MM-DD). */
 function scoringActs(acts, from) {
-  const xs = (acts || []).filter(a => a && a.sport && (a.mov || 0) >= RULES.minMinutos * 60 && (!from || dayKey(a.date) >= from));
-  // mesmo treino vindo de duas fontes (ex.: Strava e arquivo do Garmin): começa até 10 min de diferença, duração parecida
+  const xs = (acts || []).filter(a => a && a.sport && (!from || dayKey(a.date) >= from));
+  // mesmo treino vindo de duas fontes (ex.: Strava e arquivo do Garmin): começa até 10 min de diferença, antes do outro acabar, duração parecida
+  // a cópia que fica herda a distância da outra (Garmin no rolo vem com 0 km; Zwift/MyWhoosh têm a distância)
   const kept = [];
-  for (const a of [...xs].sort((p, q) => String(p.date).localeCompare(String(q.date))))
-    if (!kept.some(k => !isManual(k) && !isManual(a) && fitsSport(k.sport, a.sport) && Math.abs(new Date(k.date) - new Date(a.date)) <= 600e3 && Math.abs(k.mov - a.mov) <= .25 * Math.max(k.mov, a.mov))) kept.push(a);
+  for (const a of [...xs].sort((p, q) => String(p.date).localeCompare(String(q.date)))) {
+    const dup = kept.find(k => !isManual(k) && !isManual(a) && fitsSport(k.sport, a.sport) && Math.abs(new Date(k.date) - new Date(a.date)) <= Math.min(600, Math.max(k.mov, a.mov)) * 1e3 && Math.abs(k.mov - a.mov) <= .25 * Math.max(k.mov, a.mov));
+    if (!dup) kept.push({ ...a }); else if (!dup.dist) dup.dist = a.dist;
+  }
   const synced = kept.filter(a => !isManual(a));
-  return kept.filter(a => !isManual(a) || !synced.some(s => dayKey(s.date) === dayKey(a.date) && fitsSport(s.sport, a.sport) && Math.abs(s.mov - a.mov) <= Math.max(600, .25 * Math.max(s.mov, a.mov))));
+  return kept.filter(a => {
+    if (!isManual(a)) return true;
+    const s = synced.find(s => dayKey(s.date) === dayKey(a.date) && fitsSport(s.sport, a.sport) && (!a.mov || Math.abs(s.mov - a.mov) <= Math.max(600, .25 * Math.max(s.mov, a.mov))));
+    if (s && !s.dist) s.dist = a.dist;
+    return !s;
+  });
 }
 
 /** Resumo por dia: { "YYYY-MM-DD": { p, n, ms, mb, mr, mx, ds, db, dr } } (minutos e metros por modalidade). */
@@ -37,7 +45,7 @@ function daily(acts, from) {
   const xs = scoringActs(acts, from).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   for (const a of xs) {
     const k = dayKey(a.date), d = days[k] ||= { p: 0, n: 0, ms: 0, mb: 0, mr: 0, mx: 0, ds: 0, db: 0, dr: 0, _v: [] };
-    const min = Math.round(a.mov / 60);
+    const min = Math.round((a.mov || 0) / 60);
     d._v.push(valueOf(a)); d.n++;
     if (a.sport === "swim") { d.ms += min; d.ds += a.dist || 0; }
     else if (a.sport === "bike") { d.mb += min; d.db += a.dist || 0; }

@@ -85,7 +85,7 @@ function mergeActivities(list, src){
     if (src && !a.src) a.src = src;
     if (map.has(a.id)){ map.set(a.id, { ...map.get(a.id), ...a }); continue; }
     const dup = [...map.values()].find(b => sameWorkout(a, b));
-    if (dup){ if (!dup.hr && a.hr) dup.hr = a.hr; dup.also = [...new Set([...(dup.also||[]), a.src].filter(Boolean))]; continue; }
+    if (dup){ if (!dup.hr && a.hr) dup.hr = a.hr; if (!dup.dist && a.dist) dup.dist = a.dist; dup.also = [...new Set([...(dup.also||[]), a.src].filter(Boolean))]; continue; }
     map.set(a.id, a); added++;
   }
   S.activities = [...map.values()].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 900);
@@ -360,7 +360,7 @@ async function offerDownload(filename, obj){
   catch (e) { if (e?.code !== "cancelled" && e?.code !== "declined") flash("dados", "Não consegui gerar o arquivo. Tente de novo.", true); }
 }
 /* ---------- competição: resumo público de cada participante (sem dados de saúde) ---------- */
-/* Sequências pelas mesmas regras da pontuação (public/pontos.js): só treinos válidos (10+ min, sem "outros" nem duplicatas). */
+/* Sequências pelas mesmas regras da pontuação (public/pontos.js): só treinos válidos (sem duplicatas). */
 const streakDays = () => Pontos.streaks(Pontos.daily(S.activities), dayKey(new Date())).streakDays;
 const streakWeeks = () => Pontos.streaks(Pontos.daily(S.activities), dayKey(new Date())).streakWeeks;
 /* reconhecimentos: só aparecem quando os dados comprovam a evolução */
@@ -2664,7 +2664,7 @@ function competitionHTML(team, me){
         <div><b>+${Pontos.RULES.porTreinoOutro}</b><span>outros: força, caminhada…</span></div>
         <div><b>+${Pontos.RULES.bonusTri}</b><span>fez as 3 modalidades na semana</span></div>
       </div>
-      <ul class="rk-fine"><li>Vale treino de ${Pontos.RULES.minMinutos} min ou mais</li><li>Do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante: ${Pontos.RULES.porTreinoExtra} pts cada</li><li>Treino repetido (manual + relógio) conta uma vez</li><li>Os pontos de cada um atualizam quando a pessoa abre o app${team.some(t => t.convertido) ? "; “estimados” = calculados do resumo antigo" : ""}</li></ul>
+      <ul class="rk-fine"><li>Vale treino de qualquer duração</li><li>Do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante: ${Pontos.RULES.porTreinoExtra} pts cada</li><li>Treino repetido (manual + relógio) conta uma vez</li><li>Os pontos de cada um atualizam quando a pessoa abre o app${team.some(t => t.convertido) ? "; “estimados” = calculados do resumo antigo" : ""}</li></ul>
     </details>` : ""}
   </section>
   <div class="sect-h"><h2>Atletas</h2></div>
