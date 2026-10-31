@@ -18,6 +18,8 @@ const noon = k => new Date(k + "T12:00:00");
 const addK = (k, n) => { const d = noon(k); d.setDate(d.getDate() + n); return dayKey(d); };
 const mondayK = k => { const d = noon(k); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayKey(d); };
 const isManual = a => a.src === "manual" || /^m\d/.test(String(a.id || ""));
+/** Pontos de cada treino de um dia, do maior para o menor (os 3 de maior valor cheios; do 4º em diante, no máximo porTreinoExtra). */
+const dayValues = vals => [...vals].sort((x, y) => y - x).map((v, i) => i < RULES.cheiosPorDia ? v : Math.min(v, RULES.porTreinoExtra));
 const fitsSport = (a, b) => a === b || a === "brick" && (b === "bike" || b === "run") || b === "brick" && (a === "bike" || a === "run");
 
 /** Treinos que pontuam (válidos e sem duplicata manual), a partir de `from` (YYYY-MM-DD). */
@@ -57,10 +59,21 @@ function daily(acts, from) {
     if (!triWeeks.has(wk) && set.has("swim") && set.has("bike") && set.has("run")) { triWeeks.add(wk); d.tri = 1; }
   }
   for (const d of Object.values(days)) {
-    d.p = d._v.sort((x, y) => y - x).reduce((t, v, i) => t + (i < RULES.cheiosPorDia ? v : Math.min(v, RULES.porTreinoExtra)), 0) + (d.tri ? RULES.bonusTri : 0);
+    d.p = dayValues(d._v).reduce((t, v) => t + v, 0) + (d.tri ? RULES.bonusTri : 0);
     delete d._v;
   }
   return days;
+}
+
+/** Treinos que pontuaram e os pontos de cada um, do mais novo para o mais antigo (só o que pode aparecer no Grupo; o bônus semanal fica em days[k].tri). */
+function detail(acts, from) {
+  const byDay = {};
+  for (const a of scoringActs(acts, from)) (byDay[dayKey(a.date)] ||= []).push(a);
+  return Object.values(byDay).flatMap(xs => {
+    xs.sort((a, b) => valueOf(b) - valueOf(a) || String(a.date).localeCompare(String(b.date)));
+    const pts = dayValues(xs.map(valueOf));
+    return xs.map((a, i) => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist || 0, mov: a.mov || 0, tipo: a.tipo || "", pts: pts[i] }));
+  }).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
 /** Início de cada período (YYYY-MM-DD), nunca antes do início da competição. */
@@ -145,7 +158,7 @@ function view(doc, today, rankStart) {
     ...streaks(doc.days, today), weeks12: weeks12(doc.days, today) };
 }
 
-const Pontos = { RULES, scoringActs, daily, upgradeDays, periodStartKey, sumPeriod, periods, streaks, weeks12, formaAt, view, util: { dayKey, mondayK, addK } };
+const Pontos = { RULES, scoringActs, daily, detail, upgradeDays, periodStartKey, sumPeriod, periods, streaks, weeks12, formaAt, view, util: { dayKey, mondayK, addK } };
 root.Pontos = Pontos;
 if (typeof module !== "undefined" && module.exports) module.exports = Pontos;
 })(typeof window !== "undefined" ? window : globalThis);

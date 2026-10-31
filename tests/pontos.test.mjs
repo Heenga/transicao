@@ -63,6 +63,14 @@ test("distâncias da semana: natação curta soma e duplicata não perde a dist�
   assert.equal(w.swim_m, 650); assert.equal(w.bike_km, 50.3); assert.equal(w.run_km, 5); assert.equal(w.sessions, 6);
 });
 
+test("detalhe: pontos por treino somam os pontos do dia, sem dados privados", () => {
+  const xs = [act(TODAY, "strength", 30, { h: "06:00", name: "Treino secreto", obs: "dor" }), act(TODAY, "run", 20, { h: "07:00" }), act(TODAY, "run", 20, { h: "12:00" }), act(TODAY, "bike", 20, { h: "13:00" }), act(TODAY, "swim", 3, { h: "18:00", dist: 200 })];
+  const det = P.detail(xs, RANK), dia = P.daily(xs, RANK)[TODAY];
+  assert.equal(det.reduce((t, a) => t + a.pts, 0) + P.RULES.bonusTri, dia.p, "o bônus é do dia, não de um treino");
+  assert.deepEqual(det.map(a => [a.sport, a.pts]), [["swim", 5], ["bike", 10], ["run", 10], ["run", 10], ["strength", 5]], "os 3 primeiros de triatlo cheios, por ordem de horário; do 4º em diante, 5");
+  assert.deepEqual(Object.keys(det[0]).sort(), ["date", "dist", "id", "mov", "pts", "sport", "tipo"]);
+});
+
 test("madrugada fica no dia certo e segunda cedo na semana certa", () => {
   const days = P.daily([act("2026-10-19", "run", 40, { h: "01:30" }), act("2026-10-18", "run", 40, { h: "23:30" })], RANK);
   assert.ok(days["2026-10-19"] && days["2026-10-18"]);

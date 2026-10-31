@@ -443,7 +443,7 @@ function saveTeamDoc(recentActs, serie){
     forma: serie ? serie.v.at(-1) : 0, formaSerie: serie, forma4: null, since: RANK_START,
     streakDays: streakDays(), streakWeeks: streakWeeks(), adherence: adh, badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
     recent: recentActs.map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
-    periods: periodStats(), days: Pontos.daily(S.activities, RANK_START), rules: 3, updatedAt: new Date().toISOString() };
+    periods: periodStats(), days: Pontos.daily(S.activities, RANK_START), acts: Pontos.detail(S.activities, RANK_START), rules: 3, updatedAt: new Date().toISOString() };
   doc.points = doc.periods.semana.points;
   { const w = doc.periods.semana; doc.week = { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions }; }
   S.db.collection("team").doc(S.uid).set(doc).catch(e => console.warn("team", e));
@@ -2044,10 +2044,25 @@ function sheetHTML(){
   if (k === "log") return sheetWrap({ title: "Registrar treino", eyebrow: "Treino sem relógio", body: logFormHTML() });
   if (k === "weight") return sheetWrap({ title: "Peso", eyebrow: "Check-in semanal", body: weightSheetHTML() });
   if (k === "race") return sheetWrap({ title: "", body: countdownHTML(), cls: "dark" });
+  if (k.startsWith("atleta:")) return atletaSheetHTML(k.slice(7));
   if (k.startsWith("act:")){ const b = actSheetHTML(k.slice(4)); return b ? sheetWrap({ body: b }) : ""; }
   return "";
 }
 function statgrid(items){ return `<div class="statgrid">${items.filter(x => x && x[1] != null && x[1] !== "").map(([k, v, tip]) => `<div><span>${k}${tip || ""}</span><b>${v}</b></div>`).join("")}</div>`; }
+/** Treinos e pontos de um atleta desde o início do ranking, dia a dia (vem do resumo do Grupo). */
+function atletaSheetHTML(id){
+  const raw = S.team.find(x => x.__id === id); if (!raw) return "";
+  const t = freshTeam(raw), dias = Object.entries(t.days || {}).filter(([k]) => k >= RANK_START).sort(([a], [b]) => b.localeCompare(a)), tot = t.periods?.periodo || {};
+  const label = a => a.tipo || SPORTS[a.sport] || "Treino";
+  const dia = ([k, d]) => { const xs = (t.acts || []).filter(a => dayKey(a.date) === k);
+    return `<div class="pts-dia"><div class="pts-dia-h"><b>${new Date(k + "T12:00:00").toLocaleDateString("pt-BR", { weekday:"short", day:"2-digit", month:"short" })}</b><span class="mono">${d.p} pts</span></div>
+      ${xs.length ? xs.map(a => `<div class="pts-it">${sportIc(a.sport, 16)}<span>${esc(label(a))}<span class="note">${[a.dist ? fmtDist(a.sport, a.dist) : "", a.mov ? fmtDur(a.mov) : ""].filter(Boolean).join(" · ")}</span></span><b class="mono">+${a.pts}</b></div>`).join("")
+        : `<div class="note">${d.n} treino${d.n === 1 ? "" : "s"} · detalhes aparecem quando ${esc(t.nick)} abrir o app</div>`}
+      ${d.tri ? `<div class="pts-it">${sportIc("brick", 16)}<span>Bônus das 3 modalidades<span class="note">natação, bike e corrida na semana</span></span><b class="mono">+${Pontos.RULES.bonusTri}</b></div>` : ""}</div>`; };
+  return sheetWrap({ eyebrow: "Pontos desde " + fmtDate(RANK_START + "T12:00:00").replace(".", ""), title: esc(t.nick), body: dias.length
+    ? `<div class="stats3"><div><span>Pontos</span><b>${fmtNum(tot.points || 0, 0)}</b></div><div><span>Treinos</span><b>${tot.sessions || 0}</b></div><div><span>Horas</span><b>${fmtNum(tot.hours || 0, 1)}</b></div></div>${dias.map(dia).join("")}`
+    : `<p class="note">Nenhum treino contado ainda.</p>` });
+}
 function actSheetHTML(id){
   const a = S.activities.find(x => x.id === id); if (!a) return "";
   const ref = planMatches().actToSess.get(a.id), sess = ref ? sessByRef(ref) : null;
@@ -2649,13 +2664,14 @@ function competitionHTML(team, me){
   const kudosCount = key => S.kudos.reduce((n, k) => n + (k.to?.[key] ? 1 : 0), 0);
   const gave = key => !!S.kudos.find(k => k.__id === me)?.to?.[key];
   const verb = { swim:"nadou", bike:"pedalou", run:"correu", strength:"treinou força", brick:"fez um brick", other:"treinou" };
+  const nome = t => `<button type="button" class="nome-at" data-atleta="${esc(t.__id)}" aria-label="Ver treinos e pontos de ${esc(t.nick)}">${esc(t.nick)}</button>`;
   const you = t => t.__id === me ? ` <span class="you">você</span>` : "";
   return `<section class="card"><div class="card-h"><h2>${ic("trophy", 18)} Placar</h2></div>
     ${seg("period", Object.entries(PERIODS).map(([k, v]) => [k, k === "periodo" ? "Tudo" : v]), per)}
     ${rankStarted() ? "" : `<p class="hint">${ic("clock", 16)}<span>O ranking começa a contar em ${new Date(RANK_START + "T12:00:00").toLocaleDateString("pt-BR")}. Até lá, ninguém pontua.</span></p>`}
     <div class="hscroll chips-x">${BOARDS.map(b => `<button type="button" class="chip" data-board="${b.k}" aria-pressed="${b.k === board.k}">${b.t}</button>`).join("")}</div>
-    <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${esc(t.nick)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
-    ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${esc(t.nick)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
+    <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${nome(t)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
+    ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${nome(t)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
     <p class="rk-ctx">${ic(board.k === "points" ? "clock" : board.k === "const" ? "flame" : "chart", 14)}<span>${board.k === "forma" ? "Condicionamento atual (0–100)" : board.k === "const" ? "Semanas seguidas com 4+ treinos" : board.k === "evol" ? `Evolução desde ${fmtDate(periodStart(per)).replace(".", "")}` : `${per === "periodo" ? "Todo o período" : PERIODS[per]} · desde ${fmtDate(periodStart(per)).replace(".", "")}`}</span></p>
     ${team.some(t => t.convertido || t.pendente) ? `<div class="rk-status">${team.filter(t => t.convertido || t.pendente).map(t => `<div><span class="avatar xs">${esc(initialOf(t.nick))}</span><b>${esc(t.nick)}</b><span class="pill" style="--c:var(${t.pendente ? "--muted" : "--warn"})">${t.pendente ? "aguardando abrir o app" : "pontos estimados"}</span></div>`).join("")}</div>` : ""}
     ${board.k === "points" ? `<details class="rk-rules" ${keepOpen("regras")}><summary>${ic("target", 16)}<b>Como pontuar</b>${ic("chev", 16)}</summary>
@@ -2670,7 +2686,7 @@ function competitionHTML(team, me){
   <div class="sect-h"><h2>Atletas</h2></div>
   <div class="team">${ranked.map(t => { const w = t.week || {}, ev = t.forma4 ? +((t.forma - t.forma4) / t.forma4 * 100).toFixed(1) : null;
     return `<article class="card mate${t.__id === me ? " me" : ""}">
-      <div class="mate-h"><span class="avatar">${esc(initialOf(t.nick))}</span><div><b>${esc(t.nick)}${you(t)}</b><span class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : "", t.updatedAt ? `atualizado ${agoText(t.updatedAt)}` : ""].filter(Boolean).join(" · ") || "Nenhum treino contado ainda"}</span></div><span class="mate-pts"><b>${rankStarted() ? t.points ?? 0 : 0}</b><span>pts na semana</span></span></div>
+      <div class="mate-h"><span class="avatar">${esc(initialOf(t.nick))}</span><div><b>${nome(t)}${you(t)}</b><span class="note">${[t.adherence != null ? `aderência ${t.adherence}%` : "", t.streakDays ? `${t.streakDays} dias seguidos` : "", t.updatedAt ? `atualizado ${agoText(t.updatedAt)}` : ""].filter(Boolean).join(" · ") || "Nenhum treino contado ainda"}</span></div><span class="mate-pts"><b>${rankStarted() ? t.points ?? 0 : 0}</b><span>pts na semana</span></span></div>
       <div class="stats3"><div><span>Condição</span><b>${t.forma != null ? fmtNum(t.forma, 1) : "—"}${ev != null ? ` <small class="delta ${ev >= 0 ? "good" : "bad"}">${ev >= 0 ? "▲" : "▼"}${Math.abs(ev)}%</small>` : ""}</b></div><div><span>Horas/sem</span><b>${fmtNum(w.hours || 0, 1)}</b></div><div><span>Treinos/sem</span><b>${w.sessions ?? 0}</b></div></div>
       ${miniWeeks(t)}
       <div class="mate-dist"><span class="c-swim">${ic("swim", 15)}${fmtNum(w.swim_m || 0, 0)} m</span><span class="c-bike">${ic("bike", 15)}${fmtNum(w.bike_km || 0, 1)} km</span><span class="c-run">${ic("run", 15)}${fmtNum(w.run_km || 0, 1)} km</span></div>
@@ -2678,7 +2694,7 @@ function competitionHTML(team, me){
     </article>`; }).join("")}</div>
   <section class="card"><div class="card-h"><h2>Últimos treinos</h2><span class="note">aplauda para incentivar</span></div>
     ${feed.length ? `<div class="feed">${feed.map(f => { const key = `${f.uid}_${f.id}`.replace(/[^A-Za-z0-9_-]/g, ""), n = kudosCount(key);
-      return `<div class="fitem">${sportIc(f.sport)}<div class="ftext"><b>${esc(f.nick)}</b> ${verb[f.sport] || "treinou"}${f.dist ? ` ${fmtDist(f.sport, f.dist)}` : ""} em ${fmtDur(f.mov)}${f.tipo ? ` · ${esc(f.tipo)}` : ""}<div class="note">${agoText(f.date)}</div></div>
+      return `<div class="fitem">${sportIc(f.sport)}<div class="ftext"><b>${nome({ __id: f.uid, nick: f.nick })}</b> ${verb[f.sport] || "treinou"}${f.dist ? ` ${fmtDist(f.sport, f.dist)}` : ""} em ${fmtDur(f.mov)}${f.tipo ? ` · ${esc(f.tipo)}` : ""}<div class="note">${agoText(f.date)}</div></div>
       ${f.uid !== me ? `<button type="button" class="kudo${gave(key) ? " on" : ""}" data-kudo="${key}" aria-pressed="${gave(key)}" aria-label="Aplaudir">👏 <span>${n || ""}</span></button>` : `<span class="kudo mine" title="Aplausos que você recebeu">👏 <span>${n}</span></span>`}</div>`; }).join("")}</div>`
       : `<p class="note">Os treinos aparecem aqui quando alguém sincroniza ou registra.</p>`}
   </section>`;
@@ -2843,6 +2859,7 @@ document.addEventListener("click", e => {
   if (e.target.closest("[data-mic]")){ S.coachTab = "conversa"; go("coach"); setTimeout(() => startDictation("chat"), 80); return; }
   const g = e.target.closest("[data-go]"); if (g){ if (g.dataset.sub){ if (g.dataset.go === "treinos") S.trTab = g.dataset.sub; if (g.dataset.go === "coach") S.coachTab = g.dataset.sub; } go(g.dataset.go); return; }
   const shb = e.target.closest("[data-sheet]"); if (shb){ S.sheet = shb.dataset.sheet; S.openSess = null; render(); return; }
+  const at = e.target.closest("[data-atleta]"); if (at){ S.sheet = "atleta:" + at.dataset.atleta; S.openSess = null; render(); return; }
   const ao = e.target.closest("[data-actopen]"); if (ao){ S.sheet = "act:" + ao.dataset.actopen; S.openSess = null; render(); return; }
   const rg = e.target.closest("[data-rpeset]"); if (rg){ const a = S.activities.find(x => x.id === rg.dataset.id); if (a){ a.rpe = +rg.dataset.rpeset; persistActivities(); saveTeam(); render(); $(".sheet")?.scrollTo(0, 0); flash(S.view, `Esforço ${a.rpe} salvo. Agora complete e veja a análise.`, false); } return; }
   const jp = e.target.closest("[data-jump]"); if (jp){ document.getElementById(jp.dataset.jump)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
