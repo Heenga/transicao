@@ -10,7 +10,8 @@
    - Treino registrado à mão que repete um treino sincronizado (mesmo dia, mesma modalidade, duração parecida) não conta em dobro. */
 (function (root) {
 "use strict";
-const RULES = { porTreinoTri: 10, porTreinoOutro: 5, cheiosPorDia: 3, porTreinoExtra: 5, bonusTri: 20 };
+// versao: aumente a cada mudança nas regras; o servidor (/api/team) recusa resumo de versão anterior
+const RULES = { versao: 4, porTreinoTri: 10, porTreinoOutro: 5, cheiosPorDia: 3, porTreinoExtra: 5, bonusTri: 20 };
 const TRI = new Set(["swim", "bike", "run", "brick"]);
 const valueOf = a => TRI.has(a.sport) ? RULES.porTreinoTri : RULES.porTreinoOutro;
 const dayKey = d => { const x = new Date(d); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); };
@@ -119,10 +120,6 @@ function periods(days, today, rankStart) {
   return Object.fromEntries(PERIOD_KEYS.map(k => [k, sumPeriod(days, periodStartKey(k, today, rankStart), today)]));
 }
 
-/**
- * Card de um atleta no placar, recalculado HOJE a partir dos dias gravados. Mantém os campos que não dependem do
- * período (condicionamento, aderência, conquistas). Doc antigo sem `days` → null (o app usa o caminho antigo).
- */
 /** Condicionamento no dia k pela série diária do resumo; depois do último dia, cai como o modelo (sem treino). */
 function formaAt(serie, k) {
   if (!serie?.ini || !serie.v?.length) return null;
@@ -132,33 +129,18 @@ function formaAt(serie, k) {
   return +(serie.v.at(-1) * Math.pow(41 / 42, i - serie.v.length + 1)).toFixed(1);
 }
 
-/** Resumo gravado pela regra antiga (rules < 3: 10 pts/hora + 5 por treino) convertido para a regra atual a partir do que cada dia guarda:
-    quantos treinos (n) e os minutos por modalidade. Na regra antiga só a força pontuava fora do triatlo (minutos em `mx`), então
-    um dia com minutos de força conta 1 treino de força e o resto como triatlo. Fica exato quando a pessoa abre o app e regrava. */
-function upgradeDays(days) {
-  const out = {};
-  for (const [k, d] of Object.entries(days || {})) {
-    const outros = d.mx > 0 ? Math.min(1, d.n) : 0, vals = [...Array(Math.max(0, d.n - outros)).fill(RULES.porTreinoTri), ...Array(outros).fill(RULES.porTreinoOutro)];
-    out[k] = { ...d, p: vals.reduce((t, v, i) => t + (i < RULES.cheiosPorDia ? v : Math.min(v, RULES.porTreinoExtra)), 0) + (d.tri ? RULES.bonusTri : 0) };
-  }
-  return out;
-}
-
+/** Card de um atleta no placar, recalculado HOJE a partir dos dias gravados; o resumo só guarda o que não depende do período. */
 function view(doc, today, rankStart) {
   if (!doc || !doc.days) return null;
-  const antigo = (doc.rules || 0) < 3;
-  if (antigo) doc = { ...doc, days: upgradeDays(doc.days), rules: 3, convertido: true };
-  const ps = periods(doc.days, today, rankStart), old = doc.periods || {}, s = doc.formaSerie;
-  const forma = s ? formaAt(s, today) : doc.forma ?? null;
+  const ps = periods(doc.days, today, rankStart), s = doc.formaSerie, forma = s ? formaAt(s, today) : doc.forma ?? null;
   // Evolução = condicionamento hoje × no fim da véspera do início do período (recalculado para hoje, nunca o valor do dia em que salvou)
-  for (const k of PERIOD_KEYS) Object.assign(ps[k], s ? { forma, forma_ini: formaAt(s, addK(periodStartKey(k, today, rankStart), -1)) }
-    : { forma: old[k]?.forma ?? doc.forma ?? null, forma_ini: old[k]?.forma_ini ?? null });
+  for (const k of PERIOD_KEYS) Object.assign(ps[k], { forma, forma_ini: s ? formaAt(s, addK(periodStartKey(k, today, rankStart), -1)) : null });
   const w = ps.semana;
-  return { ...doc, periods: ps, points: w.points, forma, forma4: s ? formaAt(s, addK(today, -28)) : doc.forma4 ?? null, week: { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions },
+  return { ...doc, periods: ps, points: w.points, forma, forma4: s ? formaAt(s, addK(today, -28)) : null, week: { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions },
     ...streaks(doc.days, today), weeks12: weeks12(doc.days, today) };
 }
 
-const Pontos = { RULES, scoringActs, daily, detail, upgradeDays, periodStartKey, sumPeriod, periods, streaks, weeks12, formaAt, view, util: { dayKey, mondayK, addK } };
+const Pontos = { RULES, scoringActs, daily, detail, periodStartKey, sumPeriod, periods, streaks, weeks12, formaAt, view, util: { dayKey, mondayK, addK } };
 root.Pontos = Pontos;
 if (typeof module !== "undefined" && module.exports) module.exports = Pontos;
 })(typeof window !== "undefined" ? window : globalThis);

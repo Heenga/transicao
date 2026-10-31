@@ -789,9 +789,6 @@ body[data-view="coach"] .toasts{bottom:auto;top:calc(var(--toph) + 54px)}
 /* placar: contexto, status e regras */
 .rk-ctx{display:flex;align-items:center;gap:6px;font:600 12.5px/1.3 var(--body);color:var(--muted)}
 .rk-ctx .ic{color:var(--swim)}
-.rk-status{display:flex;flex-direction:column;gap:6px}
-.rk-status > div{display:flex;align-items:center;gap:8px;font-size:13.5px}
-.rk-status b{flex:1;min-width:0}
 .avatar.xs{width:24px;height:24px;font-size:11px;cursor:default}
 .rk-rules{border-radius:14px;background:var(--surface2);padding:0 12px}
 .rk-rules > summary{list-style:none;display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;font-size:14px}

@@ -400,16 +400,13 @@ function computeBadges(){
   return b;
 }
 const PERIODS = { dia:"Hoje", semana:"Semana", mes:"Mês", periodo:"Todo o período" };
+const TEAM = "team/placar"; // resumos do Grupo: leitura direta, gravação só por /api/team
 const RANK_START = "2026-10-14"; // a competição (ranking e cards do Grupo) só conta treinos a partir deste dia
 const rankStarted = () => dayKey(new Date()) >= RANK_START;
 function periodStart(k){
   const t = new Date(new Date().toDateString()), min = new Date(RANK_START + "T00:00:00");
   const st = k === "dia" ? t : k === "semana" ? mondayOf(t) : k === "mes" ? new Date(t.getFullYear(), t.getMonth(), 1) : min;
   return st < min ? min : st;
-}
-function periodStats(){
-  // pontos, horas, treinos e distâncias: regras de public/pontos.js (por dia, somados no período); condicionamento vem de formaSerie
-  return Pontos.periods(Pontos.daily(S.activities, RANK_START), dayKey(new Date()), RANK_START);
 }
 /** Condicionamento (0–100) dia a dia, com o histórico inteiro, de 60 dias atrás (ou da véspera do ranking) até hoje.
    Vai no resumo do Grupo para o placar calcular "Evolução" a partir do início de qualquer período, no dia em que for visto. */
@@ -428,25 +425,25 @@ function saveTeam(){
   // exceção: condicionamento é estado de forma, então usa o histórico inteiro (senão começa do zero em RANK_START)
   const all = S.activities, recent = all.slice(0, 6), serie = formaSerie();
   S.activities = all.filter(a => dayKey(a.date) >= RANK_START);
-  try { saveTeamDoc(recent, serie); } finally { S.activities = all; }
+  let doc; try { doc = teamDoc(recent, serie); } finally { S.activities = all; }
+  TRI.api("/api/team", { method: "POST", body: JSON.stringify(doc) }).catch(e => { if (e?.code === "outdated") refreshApp(); else console.warn("team", e); });
 }
-function saveTeamDoc(recentActs, serie){
-  const w = weeklyBuckets(1)[0], w12 = weeklyBuckets(12), monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  const month = sp => S.activities.filter(a => a.sport === sp && new Date(a.date) >= monthStart).reduce((s,a)=>s+a.dist,0);
-  const hours = (w.swim.t + w.bike.t + w.run.t + w.other.t)/3600, sessions = w.swim.c + w.bike.c + w.run.c + w.other.c;
-  const adh = adherence();
-  const doc = { nick: S.profile.nick || "Atleta",
-    week: { swim_m: Math.round(w.swim.d), bike_km: +(w.bike.d/1000).toFixed(1), run_km: +(w.run.d/1000).toFixed(1), hours: +hours.toFixed(1), sessions },
-    month: { swim_m: Math.round(month("swim")), bike_km: +(month("bike")/1000).toFixed(1), run_km: +(month("run")/1000).toFixed(1) },
-    weeks12: w12.map(x => ({ s: Math.round(x.swim.t/60), b: Math.round(x.bike.t/60), r: Math.round(x.run.t/60), o: Math.round(x.other.t/60) })),
-    points: 0, // preenchido abaixo com os pontos da semana contados a partir de RANK_START
-    forma: serie ? serie.v.at(-1) : 0, formaSerie: serie, forma4: null, since: RANK_START,
-    streakDays: streakDays(), streakWeeks: streakWeeks(), adherence: adh, badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
+/** Resumo do atleta no Grupo: só o que não depende do dia em que é visto; períodos, sequências e totais saem de Pontos.view. */
+function teamDoc(recentActs, serie){
+  return { nick: S.profile.nick || "Atleta", forma: serie ? serie.v.at(-1) : 0, formaSerie: serie, adherence: adherence(), badges: computeBadges().map(b => ({ k:b.k, t:b.t, d:b.d })),
     recent: recentActs.map(a => ({ id: a.id, date: a.date, sport: a.sport, dist: a.dist, mov: a.mov, tipo: a.tipo || "" })),
-    periods: periodStats(), days: Pontos.daily(S.activities, RANK_START), acts: Pontos.detail(S.activities, RANK_START), rules: 3, updatedAt: new Date().toISOString() };
-  doc.points = doc.periods.semana.points;
-  { const w = doc.periods.semana; doc.week = { swim_m: w.swim_m, bike_km: w.bike_km, run_km: w.run_km, hours: w.hours, sessions: w.sessions }; }
-  S.db.collection("team").doc(S.uid).set(doc).catch(e => console.warn("team", e));
+    days: Pontos.daily(S.activities, RANK_START), acts: Pontos.detail(S.activities, RANK_START), rules: Pontos.RULES.versao, updatedAt: new Date().toISOString() };
+}
+/** Abre a versão publicada, no máximo uma vez a cada 10 min (se o servidor recusar de novo, não fica recarregando). */
+function refreshApp(){
+  try { if (Date.now() - (+sessionStorage.getItem("atualizou") || 0) < 600e3) return; sessionStorage.setItem("atualizou", Date.now()); } catch {}
+  location.reload();
+}
+/** Saiu versão nova: troca sozinho, sem interromper quem está digitando, com painel aberto ou salvando. */
+async function checkUpdate(){
+  const atual = $("#appversion")?.title; if (!atual) return;
+  const { commit } = await fetch("/api/config").then(r => r.json()).catch(() => ({}));
+  if (commit && commit !== atual && !S.sheet && !S.openSess && !pending && !Object.values(S.busy).some(Boolean) && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) refreshApp();
 }
 
 /* ---------- Strava ---------- */
@@ -2619,19 +2616,10 @@ function weightCardHTML(){
 }
 
 /* ---------- Grupo ---------- */
-/** O resumo de cada atleta é gravado quando ELE abre o app. Se foi gravado antes do início de um período
-    (ontem, semana passada, mês passado), os números daquele período ficam zerados até ele abrir o app de novo. */
-function freshTeam(t){
-  // resumo novo (com os dias): recalcula todos os períodos para HOJE pelas regras de public/pontos.js
-  const v = window.Pontos && Pontos.view(t, dayKey(new Date()), RANK_START); if (v) return v;
-  const at = t.updatedAt ? new Date(t.updatedAt) : null; if (!at) return t;
-  const zero = { points: 0, hours: 0, sessions: 0, swim_m: 0, bike_km: 0, run_km: 0 };
-  const periods = t.periods ? Object.fromEntries(Object.entries(t.periods).map(([k, v]) => [k, k !== "periodo" && at < periodStart(k) ? { ...v, ...zero } : v])) : t.periods;
-  const oldWeek = at < mondayOf(new Date());
-  return { ...t, periods, ...(oldWeek ? { week: {}, points: 0 } : {}) };
-}
+/** O resumo de cada atleta é gravado quando ELE abre o app; aqui os períodos são recalculados para HOJE pelas regras de public/pontos.js. */
+const freshTeam = t => Pontos.view(t, dayKey(new Date()), RANK_START);
 function viewEquipe(){
-  const team = S.team.map(freshTeam).sort((a, b) => (b.week?.hours || 0) - (a.week?.hours || 0)), r = S.race;
+  const team = S.team.map(freshTeam).filter(Boolean).sort((a, b) => (b.week?.hours || 0) - (a.week?.hours || 0)), r = S.race;
   return `<header class="ph1"><div><div class="eyebrow">Grupo · ${team.length} de 4</div><h1>Quem larga junto</h1></div></header>
     ${countdownHTML()}
     ${S.isOwner ? `<details class="card" ${keepOpen("prova")}><summary class="sum">${ic("gear", 18)}<b>Editar a prova do grupo</b>${ic("chev", 18)}</summary>
@@ -2653,10 +2641,6 @@ function miniWeeks(t){
     let y = H; return [["s","swim"],["b","bike"],["r","run"],["o","muted"]].map(([k, c]) => { const h = w[k] / max * (H - 2); y -= h; return h > 0 ? `<rect x="${(i * bw + 2).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 4).toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="var(--${c})"/>` : ""; }).join("") + `<title>${tot[i]} min</title>`; }).join("")}</svg>`;
 }
 function competitionHTML(team, me){
-  // cards de quem ainda não abriu esta versão vêm com histórico antigo: mostram zero até a pessoa abrir o app
-  // resumo com regra antiga e com os dias gravados: Pontos.view já converteu para a regra atual (t.convertido).
-  // Sem os dias (versão bem antiga) não dá para converter: o placar zera até a pessoa abrir o app.
-  team = team.map(freshTeam).map(t => t.since === RANK_START && (t.rules || 0) >= 3 ? t : { ...t, points: 0, forma: 0, forma4: null, week: {}, weeks12: [], streakDays: 0, streakWeeks: 0, adherence: null, badges: [], periods: null, pendente: true });
   const b0 = BOARDS.find(b => b.k === (S.board || "points")) || BOARDS[0];
   const board = rankStarted() ? b0 : { ...b0, v: () => 0 }; // antes do início, ninguém pontua
   const ranked = team.slice().sort((a, b) => board.v(b) - board.v(a)), pod = ranked.slice(0, 3), per = S.period || "semana";
@@ -2673,14 +2657,13 @@ function competitionHTML(team, me){
     <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${nome(t)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
     ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${nome(t)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
     <p class="rk-ctx">${ic(board.k === "points" ? "clock" : board.k === "const" ? "flame" : "chart", 14)}<span>${board.k === "forma" ? "Condicionamento atual (0–100)" : board.k === "const" ? "Semanas seguidas com 4+ treinos" : board.k === "evol" ? `Evolução desde ${fmtDate(periodStart(per)).replace(".", "")}` : `${per === "periodo" ? "Todo o período" : PERIODS[per]} · desde ${fmtDate(periodStart(per)).replace(".", "")}`}</span></p>
-    ${team.some(t => t.convertido || t.pendente) ? `<div class="rk-status">${team.filter(t => t.convertido || t.pendente).map(t => `<div><span class="avatar xs">${esc(initialOf(t.nick))}</span><b>${esc(t.nick)}</b><span class="pill" style="--c:var(${t.pendente ? "--muted" : "--warn"})">${t.pendente ? "aguardando abrir o app" : "pontos estimados"}</span></div>`).join("")}</div>` : ""}
     ${board.k === "points" ? `<details class="rk-rules" ${keepOpen("regras")}><summary>${ic("target", 16)}<b>Como pontuar</b>${ic("chev", 16)}</summary>
       <div class="rk-grid">
         <div><b>+${Pontos.RULES.porTreinoTri}</b><span>natação, bike ou corrida</span></div>
         <div><b>+${Pontos.RULES.porTreinoOutro}</b><span>outros: força, caminhada…</span></div>
         <div><b>+${Pontos.RULES.bonusTri}</b><span>fez as 3 modalidades na semana</span></div>
       </div>
-      <ul class="rk-fine"><li>Vale treino de qualquer duração</li><li>Do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante: ${Pontos.RULES.porTreinoExtra} pts cada</li><li>Treino repetido (manual + relógio) conta uma vez</li><li>Os pontos de cada um atualizam quando a pessoa abre o app${team.some(t => t.convertido) ? "; “estimados” = calculados do resumo antigo" : ""}</li></ul>
+      <ul class="rk-fine"><li>Vale treino de qualquer duração</li><li>Do ${Pontos.RULES.cheiosPorDia + 1}º treino do dia em diante: ${Pontos.RULES.porTreinoExtra} pts cada</li><li>Treino repetido (manual + relógio) conta uma vez</li><li>Os pontos de cada um atualizam quando a pessoa abre o app</li></ul>
     </details>` : ""}
   </section>
   <div class="sect-h"><h2>Atletas</h2></div>
@@ -3047,7 +3030,6 @@ document.addEventListener("change", async e => {
 });
 
 /* ---------- boot ---------- */
-/* recarrega do banco tudo o que está salvo (perfil, treinos, plano, check-ins, peso, alimentação, conversa, grupo e prova) */
 /** Uma vez: treinos do Strava salvos antes da correção de fuso ficaram 3 h adiantados (horário local lido como UTC).
     Devolve o horário real, para o treino cair no dia e na semana certos (placar, plano, duplicatas). */
 function fixStravaTimes(){
@@ -3072,21 +3054,12 @@ async function loadMine(){
   if (wt?.exists) S.weights = wt.data().list || [];
   if (S.plan){ const i = Math.floor((mondayOf(new Date()) - new Date(S.plan.start + "T00:00:00")) / (7*864e5)); S.week = Math.max(0, Math.min(i, S.plan.semanas.length-1)); }
 }
+/* "Recarregar tudo": salva o que estiver pendente e abre a página de novo (código e dados da versão publicada), já sincronizando */
 async function reloadAll(){
   if (!S.db || S.busy.reload) return;
   busy("reload", true); setSaveState({ k:"saving", t:"Recarregando…" }); render();
-  try {
-    await Promise.all(Object.values(queues));
-    await loadMine();
-    const [race, team, kudos] = await Promise.all([S.db.doc("config/race").get().catch(() => null), S.db.collection("team").get().catch(() => null), S.db.collection("kudos").get().catch(() => null)]);
-    if (race?.exists) S.race = { ...RACE_DEFAULT, ...race.data() };
-    if (team) S.team = team.docs.map(d => ({ __id: d.id, ...d.data() }));
-    if (kudos) S.kudos = kudos.docs.map(d => ({ __id: d.id, ...d.data() }));
-    busy("reload", false);
-    setSaveState({ k:"ok", t:"Atualizado " + new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) });
-    render();
-    if (S.sources?.strava) syncStrava(); else saveTeam();
-  } catch (e) { busy("reload", false); setSaveState({ k:"err", t:"Erro ao recarregar" }); render(); }
+  await Promise.all(Object.values(queues)).catch(() => {});
+  location.replace("/?sync=1");
 }
 async function boot(){
   // página antiga em cache sem o <script> do motor: carrega antes de começar
@@ -3101,11 +3074,13 @@ async function boot(){
   cap("sample").then(s => s?.limits?.().then(l => { const prev = S.canImg; S.canImg = !!l?.images; bgRender(prev, S.canImg); }).catch(() => {}));
   await loadMine();
   S.ready = true; render();
-  autoSyncStrava(); maybeReplan(); setInterval(() => { autoSyncStrava(); maybeReplan(); }, 10*60e3); // pega treinos novos e o domingo 19h mesmo com o app aberto
-  db.collection("team").onSnapshot(snap => { const prev = S.team; S.team = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.team); }, () => {});
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkUpdate(); });
+  autoSyncStrava(); maybeReplan(); setInterval(() => { autoSyncStrava(); maybeReplan(); checkUpdate(); }, 10*60e3); // pega treinos novos e o domingo 19h mesmo com o app aberto
+  db.collection(TEAM).onSnapshot(snap => { const prev = S.team; S.team = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.team); }, () => {});
   db.collection("kudos").onSnapshot(snap => { const prev = S.kudos; S.kudos = snap.docs.map(d => ({ __id: d.id, ...d.data() })); if (S.view === "equipe") bgRender(prev, S.kudos); }, () => {});
   if (S.profile) saveTeam();
-  const sv = new URLSearchParams(location.search).get("strava");
+  const qs = new URLSearchParams(location.search), sv = qs.get("strava");
+  if (qs.get("sync")){ history.replaceState(null, "", "/"); if (S.sources?.strava) syncStrava(); }
   if (sv){ history.replaceState(null, "", "/");
     const m = { ok:"Strava conectado! Buscando seus treinos…", negado:"Você cancelou a conexão com o Strava.", "sem-permissao":"Para ler seus treinos, marque a permissão de ver atividades ao conectar o Strava.", limite:"O app do Strava ainda não foi liberado para mais atletas. Veja o README (limite de atletas do Strava).", erro:"Não consegui conectar o Strava. Tente de novo." }[sv] || "";
     if (sv === "ok"){ TRI.me.strava = { connected:true }; flash(S.view, m, false); syncStrava(); } else flash(S.view, m, true); }
