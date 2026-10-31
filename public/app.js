@@ -2654,9 +2654,10 @@ function competitionHTML(team, me){
     ${seg("period", Object.entries(PERIODS).map(([k, v]) => [k, k === "periodo" ? "Tudo" : v]), per)}
     ${rankStarted() ? "" : `<p class="hint">${ic("clock", 16)}<span>O ranking começa a contar em ${new Date(RANK_START + "T12:00:00").toLocaleDateString("pt-BR")}. Até lá, ninguém pontua.</span></p>`}
     <div class="hscroll chips-x">${BOARDS.map(b => `<button type="button" class="chip" data-board="${b.k}" aria-pressed="${b.k === board.k}">${b.t}</button>`).join("")}</div>
-    <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${nome(t)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
-    ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li><span class="rk">${i + 4}º</span><span>${nome(t)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
+    <div class="podium">${pod.map((t, i) => `<div class="pod p${i + 1}${t.__id === me ? " me" : ""}" data-atleta="${esc(t.__id)}"><span class="avatar">${esc(initialOf(t.nick))}</span><b>${nome(t)}</b><span class="mono">${board.f(board.v(t))}</span><div class="pod-bar"><span>${i + 1}º</span></div></div>`).join("")}</div>
+    ${ranked.length > 3 ? `<ol class="rank" start="4">${ranked.slice(3).map((t, i) => `<li data-atleta="${esc(t.__id)}"><span class="rk">${i + 4}º</span><span>${nome(t)}${you(t)}</span><span class="mono">${board.f(board.v(t))}</span></li>`).join("")}</ol>` : ""}
     <p class="rk-ctx">${ic(board.k === "points" ? "clock" : board.k === "const" ? "flame" : "chart", 14)}<span>${board.k === "forma" ? "Condicionamento atual (0–100)" : board.k === "const" ? "Semanas seguidas com 4+ treinos" : board.k === "evol" ? `Evolução desde ${fmtDate(periodStart(per)).replace(".", "")}` : `${per === "periodo" ? "Todo o período" : PERIODS[per]} · desde ${fmtDate(periodStart(per)).replace(".", "")}`}</span></p>
+    <p class="note center">Toque em um atleta para ver os treinos e os pontos.</p>
     ${board.k === "points" ? `<details class="rk-rules" ${keepOpen("regras")}><summary>${ic("target", 16)}<b>Como pontuar</b>${ic("chev", 16)}</summary>
       <div class="rk-grid">
         <div><b>+${Pontos.RULES.porTreinoTri}</b><span>natação, bike ou corrida</span></div>

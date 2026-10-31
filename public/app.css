@@ -667,6 +667,7 @@ body[data-view="coach"][data-ctab="conversa"] main{padding-bottom:0;gap:0}
 .pod b{font-size:14px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pod .mono{font-size:12px;color:var(--muted)}
 .pod-bar{width:100%;border-radius:14px 14px 6px 6px;display:grid;place-items:center;font:800 20px/1 var(--display);color:var(--bg);background:var(--muted);margin-top:4px}
+.pod[data-atleta],.rank li[data-atleta]{cursor:pointer}
 .pod.p1{order:2} .pod.p2{order:1} .pod.p3{order:3}
 .pod.p1 .pod-bar{height:84px;background:linear-gradient(170deg,#E8B23A,#C98A12)}
 .pod.p2 .pod-bar{height:62px;background:linear-gradient(170deg,#A9B4C6,#7D889C)}
